@@ -24,7 +24,8 @@ def _ensure_log_directory(path: str) -> None:
 
 def configure_logging(config: Dict[str, Any]) -> Dict[str, logging.Logger]:
     logging_config = config.get("logging", {})
-    log_level = logging_config.get("log_level", "INFO").upper()
+    # Default to WARNING so INFO/DEBUG are disabled unless explicitly configured
+    log_level = logging_config.get("log_level", "WARNING").upper()
     root_level = getattr(logging, log_level, logging.INFO)
 
     logging.basicConfig(
@@ -32,6 +33,15 @@ def configure_logging(config: Dict[str, Any]) -> Dict[str, logging.Logger]:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         handlers=[logging.StreamHandler()],
     )
+
+    # Silence overly-verbose logs from the IB API utility module
+    # (set to WARNING to suppress INFO/DEBUG emitted by ibapi.util)
+    try:
+        logging.getLogger("ibapi.util").setLevel(logging.WARNING)
+        logging.getLogger("ibapi").setLevel(logging.WARNING)
+    except Exception:
+        # best-effort: ignore failures configuring third-party loggers
+        pass
 
     _ensure_log_directory(logging_config.get("error_log", "logs/error.log"))
     _ensure_log_directory(logging_config.get("trade_log", "logs/trade.log"))
@@ -51,7 +61,8 @@ def configure_logging(config: Dict[str, Any]) -> Dict[str, logging.Logger]:
     execution_handler.setFormatter(formatter)
 
     error_logger.setLevel(logging.ERROR)
-    trade_logger.setLevel(logging.INFO)
+    # Respect configured root level for standard loggers so INFO is off by default
+    trade_logger.setLevel(root_level)
     execution_logger.setLevel(root_level)
 
     error_logger.addHandler(error_handler)
