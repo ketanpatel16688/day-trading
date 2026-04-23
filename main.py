@@ -2,6 +2,7 @@ import argparse
 import logging
 from pathlib import Path
 from typing import Dict, List, Optional
+import re
 
 # Colored printing helpers — try to use colorama when available for Windows compatibility
 try:
@@ -60,7 +61,7 @@ def main() -> None:
     parser.add_argument(
         "--debug-watchlist",
         help=(
-            "Print last daily close and daily gain/loss % for a predefined watchlist"
+            "Print last daily close and daily gain/loss %% for a predefined watchlist"
         ),
         action="store_true",
     )
@@ -70,6 +71,15 @@ def main() -> None:
     parser.add_argument("--bracket-limit", help="Limit price for parent order (optional)", type=float)
     parser.add_argument("--bracket-sl", help="Stop-loss price (required for bracket)", type=float)
     parser.add_argument("--bracket-tp", help="Take-profit price (required for bracket)", type=float)
+    parser.add_argument("--option", help="Option contract string (e.g. 'AAPL 20240821 C 170' or 'AAPL-20240821-C-170')", metavar="OPTION")
+    parser.add_argument("--option-side", help="buy or sell", choices=["buy", "sell"], default="buy")
+    parser.add_argument("--option-qty", help="Quantity (contracts) for option order", type=int, default=1)
+    parser.add_argument("--option-limit", help="Limit price for parent option order (optional)", type=float)
+    parser.add_argument("--option-sl", help="Stop-loss price for option (optional)", type=float)
+    parser.add_argument("--option-tp", help="Take-profit price for option (optional)", type=float)
+    parser.add_argument("--cancel-order", help="Cancel a pending order by ORDER_ID", type=int)
+    parser.add_argument("--close-position", help="Close position for SYMBOL (closes full size by default)", metavar="SYMBOL")
+    parser.add_argument("--close-qty", help="Quantity to close (optional)", type=float)
     args = parser.parse_args()
 
     config_path = Path("config.json")
@@ -107,6 +117,9 @@ def main() -> None:
             or args.debug_orders
             or args.debug_watchlist
             or args.bracket
+            or args.option
+            or args.cancel_order
+            or args.close_position
         ):
             if args.debug_close:
                 symbol = args.debug_close
@@ -117,6 +130,7 @@ def main() -> None:
                 except Exception as exc:
                     error_logger.error("Failed to fetch latest close for %s: %s", symbol, exc)
                     print_red(f"Failed to fetch latest close for {symbol}: {exc}")
+                return
             if args.debug_positions:
                 try:
                     positions = manager.get_positions()
@@ -127,6 +141,7 @@ def main() -> None:
                 except Exception as exc:
                     error_logger.error("Failed to fetch positions: %s", exc)
                     print_red(f"Failed to fetch positions: {exc}")
+                return
             if args.debug_orders:
                 try:
                     orders = manager.get_open_orders()
@@ -137,7 +152,31 @@ def main() -> None:
                 except Exception as exc:
                     error_logger.error("Failed to fetch open orders: %s", exc)
                     print_red(f"Failed to fetch open orders: {exc}")
+                return
 
+            if args.cancel_order:
+                oid = int(args.cancel_order)
+                try:
+                    manager.cancel_order(oid)
+                    trade_logger.info("Cancelled order %s", oid)
+                    print_yellow(f"Cancelled order {oid}")
+                except Exception as exc:
+                    error_logger.error("Failed to cancel order %s: %s", oid, exc)
+                    print_red(f"Failed to cancel order {oid}: {exc}")
+                return
+
+            if args.close_position:
+                sym = args.close_position
+                qty = args.close_qty
+                try:
+                    order_id = manager.close_position(sym, quantity=qty)
+                    trade_logger.info("Submitted close order %s for %s qty=%s", order_id, sym, qty)
+                    print_yellow(f"Submitted close order {order_id} for {sym} qty={qty if qty is not None else 'FULL'}")
+                except Exception as exc:
+                    error_logger.error("Failed to close position for %s: %s", sym, exc)
+                    print_red(f"Failed to close position for {sym}: {exc}")
+                return
+                return
             if args.debug_watchlist:
                 watchlist = [
                     "MSFT",
@@ -182,7 +221,7 @@ def main() -> None:
                     except Exception as exc:
                         error_logger.error("Failed to fetch daily data for %s: %s", sym, exc)
                         print_red(f"Failed to fetch daily data for {sym}: {exc}")
-
+                    return
             if args.bracket:
                 ticker = args.bracket
                 side = args.bracket_side
@@ -210,6 +249,82 @@ def main() -> None:
                 except Exception as exc:
                     error_logger.error("Failed to place bracket order for %s: %s", ticker, exc)
                     print_red(f"Failed to place bracket order for {ticker}: {exc}")
+
+                return
+
+            if args.option:
+                # parse option string into underlying, expiry(YYYYMMDD), right(C/P), strike
+                opt = args.option
+                def parse_option_string(s: str):
+                    parts = [p for p in re.split(r"[^A-Za-z0-9\.]+", s) if p]
+                    if len(parts) < 4:
+                        return None
+                    # attempt to find tokens: underlying (letters), expiry (8 digits), right (C/P), strike (digits)
+                    underlying = None
+                    expiry = None
+                    right = None
+                    strike = None
+                    for p in parts:
+                        if re.fullmatch(r"[A-Za-z]+", p) and underlying is None:
+                            underlying = p
+                            continue
+                        if re.fullmatch(r"\d{8}", p) and expiry is None:
+                            expiry = p
+                            continue
+                        if re.fullmatch(r"[CPcp]", p) and right is None:
+                            right = p.upper()
+                            continue
+                        if re.fullmatch(r"\d+(?:\.\d+)?", p) and strike is None:
+                            strike = float(p)
+                            continue
+                    if None in (underlying, expiry, right, strike):
+                        return None
+                    return (underlying, expiry, strike, right)
+
+                parsed = parse_option_string(opt)
+                if not parsed:
+                    error_logger.error("Failed to parse option contract string: %s", opt)
+                    print_red("Failed to parse option contract string. Example formats: 'AAPL 20240821 C 170' or 'AAPL-20240821-C-170'")
+                    return
+
+                underlying, expiry, strike, right = parsed
+                side = args.option_side
+                qty = int(args.option_qty)
+                limit = args.option_limit
+                sl = args.option_sl
+                tp = args.option_tp
+
+                try:
+                    if sl is not None and tp is not None:
+                        ids = manager.place_option_bracket(
+                            underlying=underlying,
+                            expiry=expiry,
+                            strike=float(strike),
+                            right=right,
+                            action=side,
+                            quantity=qty,
+                            stop_price=float(sl),
+                            take_profit_price=float(tp),
+                            limit_price=float(limit) if limit is not None else None,
+                        )
+                        trade_logger.info("Placed option bracket for %s: %s", opt, ids)
+                        print_yellow(f"Placed option bracket for {opt}: parent={ids['parent']} tp={ids['tp']} sl={ids['sl']}")
+                    else:
+                        oid = manager.place_option_order(
+                            underlying=underlying,
+                            expiry=expiry,
+                            strike=float(strike),
+                            right=right,
+                            action=side,
+                            quantity=qty,
+                            order_type="LMT" if limit is not None else "MKT",
+                            price=float(limit) if limit is not None else None,
+                        )
+                        trade_logger.info("Placed option order for %s: %s", opt, oid)
+                        print_yellow(f"Placed option order for {opt}: order_id={oid}")
+                except Exception as exc:
+                    error_logger.error("Failed to place option order for %s: %s", opt, exc)
+                    print_red(f"Failed to place option order for {opt}: {exc}")
 
                 return
 

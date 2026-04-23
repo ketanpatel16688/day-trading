@@ -328,3 +328,174 @@ class IBKRManager:
         self.client.placeOrder(sl_id, contract, sl)
 
         return {"parent": parent_id, "tp": tp_id, "sl": sl_id}
+
+    def _build_option_contract(
+        self,
+        underlying: str,
+        expiry: str,
+        strike: float,
+        right: str,
+        multiplier: str = "100",
+        currency: str = "USD",
+        exchange: str = "SMART",
+    ) -> Contract:
+        contract = Contract()
+        contract.symbol = underlying
+        contract.secType = "OPT"
+        # IB accepts YYYYMMDD or YYYYMM format for lastTradeDateOrContractMonth
+        contract.lastTradeDateOrContractMonth = expiry
+        contract.strike = float(strike)
+        contract.right = right.upper()
+        contract.multiplier = multiplier
+        contract.currency = currency
+        contract.exchange = exchange
+        return contract
+
+    def place_option_order(
+        self,
+        underlying: str,
+        expiry: str,
+        strike: float,
+        right: str,
+        action: str,
+        quantity: float,
+        order_type: str = "MKT",
+        price: Optional[float] = None,
+    ) -> int:
+        if not self.client.isConnected():
+            raise RuntimeError("IBKR client is not connected")
+
+        order_id = self.client.next_order_id
+        self.client.next_order_id += 1
+
+        contract = self._build_option_contract(underlying, expiry, strike, right)
+        order = Order()
+        order.action = action.upper()
+        order.orderType = order_type
+        order.totalQuantity = quantity
+        order.eTradeOnly = False  # Add this line
+        order.firmQuoteOnly = False # Often needed alongside eTradeOnly
+
+        if price is not None and order_type == "LMT":
+            order.lmtPrice = price
+
+        self.logger.debug(
+            "Placing option order %s for %.2f contracts of %s %s %s",
+            order_id,
+            quantity,
+            underlying,
+            expiry,
+            right,
+        )
+        self.client.placeOrder(order_id, contract, order)
+        return order_id
+
+    def place_option_bracket(
+        self,
+        underlying: str,
+        expiry: str,
+        strike: float,
+        right: str,
+        action: str,
+        quantity: float,
+        stop_price: float,
+        take_profit_price: float,
+        limit_price: Optional[float] = None,
+    ) -> Dict[str, int]:
+        if not self.client.isConnected():
+            raise RuntimeError("IBKR client is not connected")
+
+        contract = self._build_option_contract(underlying, expiry, strike, right)
+
+        parent_id = self.client.next_order_id
+        self.client.next_order_id += 1
+
+        parent = Order()
+        parent.orderType = "LMT" if limit_price is not None else "MKT"
+        parent.action = action.upper()
+        parent.totalQuantity = quantity
+        if limit_price is not None and parent.orderType == "LMT":
+            parent.lmtPrice = limit_price
+        parent.transmit = False
+
+        tp_id = self.client.next_order_id
+        self.client.next_order_id += 1
+        tp = Order()
+        tp.action = "SELL" if action.lower() == "buy" else "BUY"
+        tp.orderType = "LMT"
+        tp.totalQuantity = quantity
+        tp.lmtPrice = take_profit_price
+        tp.parentId = parent_id
+        tp.transmit = False
+
+        sl_id = self.client.next_order_id
+        self.client.next_order_id += 1
+        sl = Order()
+        sl.action = "SELL" if action.lower() == "buy" else "BUY"
+        sl.orderType = "STP"
+        sl.auxPrice = stop_price
+        sl.totalQuantity = quantity
+        sl.parentId = parent_id
+        sl.transmit = True
+
+        self.logger.debug(
+            "Placing option bracket order parent=%s tp=%s sl=%s for %s %s %s",
+            parent_id,
+            tp_id,
+            sl_id,
+            underlying,
+            expiry,
+            right,
+        )
+        self.client.placeOrder(parent_id, contract, parent)
+        self.client.placeOrder(tp_id, contract, tp)
+        self.client.placeOrder(sl_id, contract, sl)
+
+        return {"parent": parent_id, "tp": tp_id, "sl": sl_id}
+
+    def cancel_order(self, order_id: int) -> None:
+        """Cancel a pending order by its IB order ID."""
+        if not self.client.isConnected():
+            raise RuntimeError("IBKR client is not connected")
+
+        self.logger.debug("Cancelling order %s", order_id)
+        try:
+            self.client.cancelOrder(int(order_id))
+        except Exception as exc:
+            self.logger.error("Failed to cancel order %s: %s", order_id, exc)
+            raise
+
+    def close_position(self, symbol: str, quantity: Optional[float] = None) -> int:
+        """Close an existing position for `symbol` by submitting an opposite market order.
+
+        If `quantity` is None, the full open position size will be closed.
+        Returns the placed order id.
+        """
+        if not self.client.isConnected():
+            raise RuntimeError("IBKR client is not connected")
+
+        # Refresh positions
+        positions = self.get_positions()
+        match = None
+        for p in positions:
+            if p.get("symbol") == symbol:
+                match = p
+                break
+
+        if match is None:
+            raise ValueError(f"No open position found for symbol {symbol}")
+
+        open_qty = float(match.get("position", 0))
+        if open_qty == 0:
+            raise ValueError(f"Position for {symbol} is zero")
+
+        # Determine quantity to close
+        qty_to_close = abs(open_qty) if quantity is None else float(quantity)
+
+        # Action is opposite of the current position sign
+        action = "SELL" if open_qty > 0 else "BUY"
+
+        # Place a market order to close
+        order_id = self.place_order(symbol=symbol, action=action, quantity=qty_to_close, order_type="MKT")
+        self.logger.info("Submitted close order %s for %s qty=%.2f", order_id, symbol, qty_to_close)
+        return order_id
