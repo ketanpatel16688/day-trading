@@ -69,6 +69,14 @@ def configure_logging(config: Dict[str, Any]) -> Dict[str, logging.Logger]:
     trade_logger.addHandler(trade_handler)
     execution_logger.addHandler(execution_handler)
 
+    application_log = logging_config.get("application_log")
+    if application_log:
+        _ensure_log_directory(application_log)
+        app_handler = logging.FileHandler(application_log, encoding="utf-8")
+        app_handler.setFormatter(formatter)
+        # Add to root logger to capture all logs
+        logging.getLogger().addHandler(app_handler)
+
     return {
         "error": error_logger,
         "trade": trade_logger,

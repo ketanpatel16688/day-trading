@@ -21,6 +21,8 @@
     "log_level": "INFO",
     "error_log": "logs/error.log",
     "trade_log": "logs/trade.log",
-    "execution_log": "logs/execution.log"
+    "execution_log": "logs/execution.log",
+    "journal_log": "logs/journal.log",
+    "application_log": "logs/application.log"
   }
 }

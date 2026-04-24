@@ -32,6 +32,7 @@ from config import configure_logging, load_config
 from ibkr_trading_bot.ibkr_manager import IBKRManager
 from ibkr_trading_bot.indicators import IndicatorCalculator
 from ibkr_trading_bot.strategy import get_strategy_class
+from ibkr_trading_bot.trading_journal import TradingJournal
 
 
 def calculate_position_size(
@@ -88,6 +89,8 @@ def main() -> None:
     execution_logger = loggers["execution"]
     trade_logger = loggers["trade"]
     error_logger = loggers["error"]
+
+    journal = TradingJournal(config.get("logging", {}).get("journal_log", "logs/journal.log"))
 
     execution_logger.info("Starting one-shot IBKR trading bot run")
 
@@ -172,6 +175,17 @@ def main() -> None:
                     order_id = manager.close_position(sym, quantity=qty)
                     trade_logger.info("Submitted close order %s for %s qty=%s", order_id, sym, qty)
                     print_yellow(f"Submitted close order {order_id} for {sym} qty={qty if qty is not None else 'FULL'}")
+                    # Record in journal
+                    if qty is None:
+                        positions = manager.get_positions()
+                        qty_closed = 0
+                        for p in positions:
+                            if p.get("symbol") == sym:
+                                qty_closed = abs(float(p.get("position", 0)))
+                                break
+                    else:
+                        qty_closed = qty
+                    journal.record_close(sym, qty_closed, order_id)
                 except Exception as exc:
                     error_logger.error("Failed to close position for %s: %s", sym, exc)
                     print_red(f"Failed to close position for {sym}: {exc}")
@@ -384,6 +398,7 @@ def main() -> None:
                     ticker,
                     order_id,
                 )
+                journal.record_trade(ticker, order_action, float(position_size), order_id)
             elif signal_payload.get("exit_long"):
                 trade_logger.info("Exit-long condition met for %s", ticker)
             elif signal_payload.get("exit_short"):
