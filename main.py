@@ -72,15 +72,20 @@ def main() -> None:
     parser.add_argument("--bracket-limit", help="Limit price for parent order (optional)", type=float)
     parser.add_argument("--bracket-sl", help="Stop-loss price (required for bracket)", type=float)
     parser.add_argument("--bracket-tp", help="Take-profit price (required for bracket)", type=float)
+    
     parser.add_argument("--option", help="Option contract string (e.g. 'AAPL 20240821 C 170' or 'AAPL-20240821-C-170')", metavar="OPTION")
     parser.add_argument("--option-side", help="buy or sell", choices=["buy", "sell"], default="buy")
     parser.add_argument("--option-qty", help="Quantity (contracts) for option order", type=int, default=1)
     parser.add_argument("--option-limit", help="Limit price for parent option order (optional)", type=float)
     parser.add_argument("--option-sl", help="Stop-loss price for option (optional)", type=float)
     parser.add_argument("--option-tp", help="Take-profit price for option (optional)", type=float)
+    
+    parser.add_argument("--day-order", help="Use DAY time-in-force instead of GTC (for day trading)", action="store_true")
+    
     parser.add_argument("--cancel-order", help="Cancel a pending order by ORDER_ID", type=int)
     parser.add_argument("--close-position", help="Close position for SYMBOL (closes full size by default)", metavar="SYMBOL")
     parser.add_argument("--close-qty", help="Quantity to close (optional)", type=float)
+    
     args = parser.parse_args()
 
     config_path = Path("config.json")
@@ -92,38 +97,42 @@ def main() -> None:
 
     journal = TradingJournal(config.get("logging", {}).get("journal_log", "logs/journal.log"))
 
-    execution_logger.info("Starting one-shot IBKR trading bot run")
+    execution_logger.info(">>>>>>>> Starting Trading Bot <<<<<<<")
 
     ibkr_config = config.get("ibkr", {})
-    tickers: List[str] = config.get("supported_tickers", [])
+#    tickers: List[str] = config.get("supported_tickers", [])
 
-    if not tickers:
-        error_logger.error("No supported tickers defined in config.json")
-        return
+#    if not tickers:
+#        error_logger.error("No supported tickers defined in config.json")
+#        return
 
-    strategy_name = config.get("strategy", {}).get("name", "SMARsiAtrStrategy")
-    strategy_class = get_strategy_class(strategy_name)
-    strategy = strategy_class(IndicatorCalculator(), config)
+#    strategy_name = config.get("strategy", {}).get("name", "SMARsiAtrStrategy")
+#   strategy_class = get_strategy_class(strategy_name)
+#   strategy = strategy_class(IndicatorCalculator(), config)
 
     manager = IBKRManager(
         host=ibkr_config.get("host", "127.0.0.1"),
         port=ibkr_config.get("port", 7497),
         client_id=ibkr_config.get("client_id", 1001),
     )
+    
+    # Determine time-in-force based on --day-order flag
+    tif = "DAY" if args.day_order else "GTC"
+    
     try:
         manager.connect()
 
         # Debug-only commands: if any debug arg supplied, run it and exit
-        if (
-            args.debug_close
-            or args.debug_positions
-            or args.debug_orders
-            or args.debug_watchlist
-            or args.bracket
-            or args.option
-            or args.cancel_order
-            or args.close_position
-        ):
+        if any([
+            args.debug_close,
+            args.debug_positions,
+            args.debug_orders,
+            args.debug_watchlist,
+            args.bracket,
+            args.option,
+            args.cancel_order is not None,
+            args.close_position,
+        ]):
             if args.debug_close:
                 symbol = args.debug_close
                 try:
@@ -157,8 +166,8 @@ def main() -> None:
                     print_red(f"Failed to fetch open orders: {exc}")
                 return
 
-            if args.cancel_order:
-                oid = int(args.cancel_order)
+            if args.cancel_order is not None:  # Changed from 'if args.cancel_order:' to handle 0 correctly
+                oid = args.cancel_order  # No need for int() since type=int already converts it
                 try:
                     manager.cancel_order(oid)
                     trade_logger.info("Cancelled order %s", oid)
@@ -257,6 +266,7 @@ def main() -> None:
                         stop_price=float(sl),
                         take_profit_price=float(tp),
                         limit_price=float(limit) if limit is not None else None,
+                        tif=tif,
                     )
                     trade_logger.info("Placed bracket order for %s: %s", ticker, ids)
                     print_yellow(f"Placed bracket order for {ticker}: parent={ids['parent']} tp={ids['tp']} sl={ids['sl']}")
@@ -320,6 +330,7 @@ def main() -> None:
                             stop_price=float(sl),
                             take_profit_price=float(tp),
                             limit_price=float(limit) if limit is not None else None,
+                            tif=tif,
                         )
                         trade_logger.info("Placed option bracket for %s: %s", opt, ids)
                         print_yellow(f"Placed option bracket for {opt}: parent={ids['parent']} tp={ids['tp']} sl={ids['sl']}")
@@ -333,6 +344,7 @@ def main() -> None:
                             quantity=qty,
                             order_type="LMT" if limit is not None else "MKT",
                             price=float(limit) if limit is not None else None,
+                            tif=tif,
                         )
                         trade_logger.info("Placed option order for %s: %s", opt, oid)
                         print_yellow(f"Placed option order for {opt}: order_id={oid}")
@@ -342,73 +354,9 @@ def main() -> None:
 
                 return
 
-        # Normal trading run
-        for ticker in tickers:
-            execution_logger.info("Fetching data for %s", ticker)
-            try:
-                bars = manager.fetch_historical_data(
-                    symbol=ticker,
-                    duration="2 D",
-                    bar_size="30 mins",
-                    what_to_show="TRADES",
-                )
-            except Exception as exc:
-                error_logger.error("Failed to fetch historical bars for %s: %s", ticker, exc)
-                print_red(f"Failed to fetch historical bars for {ticker}: {exc}")
-                continue
-
-            if len(bars) < 15:
-                error_logger.error("Not enough bars to calculate indicators for %s", ticker)
-                continue
-
-            highs = [bar["high"] for bar in bars]
-            lows = [bar["low"] for bar in bars]
-            closes = [bar["close"] for bar in bars]
-
-            signal_payload = strategy.generate_signal(ticker, highs, lows, closes)
-            execution_logger.info("Signal for %s: %s", ticker, signal_payload)
-
-            atr_value = signal_payload.get("atr")
-            account_value = float(config.get("account_value", 0))
-            risk_pct = float(config.get("risk_pct", 0))
-            atr_multiplier = float(config.get("atr_multiplier", 1))
-            position_size = calculate_position_size(account_value, risk_pct, atr_value, atr_multiplier)
-
-            if position_size is None or position_size <= 0:
-                execution_logger.warning(
-                    "Position sizing skipped for %s because the calculated size is invalid: %s",
-                    ticker,
-                    position_size,
-                )
-                continue
-
-            trade_action = signal_payload.get("signal")
-            if trade_action in {"long", "short"}:
-                order_action = "BUY" if trade_action == "long" else "SELL"
-                order_id = manager.place_order(
-                    symbol=ticker,
-                    action=order_action,
-                    quantity=float(position_size),
-                    order_type="MKT",
-                )
-                trade_logger.info(
-                    "Submitted %s order for %d shares of %s (order_id=%s)",
-                    order_action,
-                    position_size,
-                    ticker,
-                    order_id,
-                )
-                journal.record_trade(ticker, order_action, float(position_size), order_id)
-            elif signal_payload.get("exit_long"):
-                trade_logger.info("Exit-long condition met for %s", ticker)
-            elif signal_payload.get("exit_short"):
-                trade_logger.info("Exit-short condition met for %s", ticker)
-            else:
-                execution_logger.info("No trade action for %s", ticker)
-
     finally:
         manager.disconnect()
-        execution_logger.info("IBKR trading bot run complete")
+        execution_logger.info(">>>End of Trading Bot operation<<<")
 
 if __name__ == "__main__":
     main()

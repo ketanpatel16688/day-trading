@@ -110,9 +110,11 @@ def webhook():
             pos = _get_position_for(ticker)
             if pos and float(pos.get("position", 0)) != 0:
                 try:
-                    order_id = _manager.close_position(ticker)
+                    cfg = load_config(Path("config.json"))
+                    tif = cfg.get("alert", {}).get("default_tif", "GTC")
+                    order_id = _manager.close_position(ticker, tif=tif)
                     qty_closed = abs(float(pos.get("position", 0)))
-                    logger.info("Submitted close (sell) order %s for %s", order_id, ticker)
+                    logger.info("Submitted close (sell) order %s for %s tif=%s", order_id, ticker, tif)
                     _journal.record_close(ticker, qty_closed, order_id)
                     return {"status": "ok", "action": "closed_position", "order_id": order_id}
                 except Exception as exc:
@@ -136,12 +138,13 @@ def webhook():
                 logger.info("BUY alert for %s ignored: pending orders present", ticker)
                 return {"status": "ignored", "reason": "pending_orders"}
 
-            # Determine quantity from config (fallback to 1)
+            # Determine quantity and TIF from config (fallback to 1 and GTC)
             cfg = load_config(Path("config.json"))
             qty = cfg.get("alert", {}).get("default_qty", 1)
+            tif = cfg.get("alert", {}).get("default_tif", "GTC")
             try:
-                order_id = _manager.place_order(symbol=ticker, action="BUY", quantity=float(qty), order_type="MKT")
-                logger.info("Placed BUY market order %s for %s qty=%s", order_id, ticker, qty)
+                order_id = _manager.place_order(symbol=ticker, action="BUY", quantity=float(qty), order_type="MKT", tif=tif)
+                logger.info("Placed BUY market order %s for %s qty=%s tif=%s", order_id, ticker, qty, tif)
                 _journal.record_trade(ticker, "BUY", float(qty), order_id)
                 return {"status": "ok", "action": "placed_buy", "order_id": order_id}
             except Exception as exc:

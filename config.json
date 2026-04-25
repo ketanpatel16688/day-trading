@@ -1,7 +1,7 @@
 {
   "ibkr": {
     "host": "127.0.0.1",
-    "port": 4002,
+    "port": 7497,
     "client_id": 1001
   },
   "supported_tickers": [
@@ -16,6 +16,10 @@
     "sma_window": 20,
     "rsi_window": 14,
     "atr_window": 14
+  },
+  "alert": {
+    "default_qty": 1,
+    "default_tif": "GTC"
   },
   "logging": {
     "log_level": "INFO",

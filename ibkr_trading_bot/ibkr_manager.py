@@ -92,7 +92,13 @@ class IBKRClient(EWrapper, EClient):
         self._open_orders_event.set()
 
     def error(self, reqId: int, errorCode: int, errorString: str, *args) -> None:
-        self.logger.error("IBKR error. reqId=%s errCode=%s errMsg=%s", reqId, errorCode, errorString)
+        # Filter out informational connection status messages
+        # Error codes 2101-2107 and 2158 are connection status messages, not actual errors
+        informational_codes = {2101, 2102, 2103, 2104, 2105, 2106, 2107, 2158}
+        if errorCode in informational_codes:
+            self.logger.debug("IBKR status. reqId=%s errCode=%s errMsg=%s", reqId, errorCode, errorString)
+        else:
+            self.logger.error("IBKR error. reqId=%s errCode=%s errMsg=%s", reqId, errorCode, errorString)
 
 
 class IBKRManager:
@@ -244,6 +250,7 @@ class IBKRManager:
         quantity: float,
         order_type: str = "MKT",
         price: Optional[float] = None,
+        tif: str = "GTC",
     ) -> int:
         if not self.client.isConnected():
             raise RuntimeError("IBKR client is not connected")
@@ -256,6 +263,7 @@ class IBKRManager:
         order.action = action.upper()
         order.orderType = order_type
         order.totalQuantity = quantity
+        order.tif = tif
 
         if price is not None and order_type == "LMT":
             order.lmtPrice = price
@@ -278,6 +286,7 @@ class IBKRManager:
         stop_price: float,
         take_profit_price: float,
         limit_price: Optional[float] = None,
+        tif: str = "GTC",
     ) -> Dict[str, int]:
         """Place a bracket order: parent (market or limit) + TP + SL.
 
@@ -295,6 +304,7 @@ class IBKRManager:
         parent.orderType = "LMT" if limit_price is not None else "MKT"
         parent.action = action.upper()
         parent.totalQuantity = quantity
+        parent.tif = tif
         if limit_price is not None and parent.orderType == "LMT":
             parent.lmtPrice = limit_price
         parent.transmit = False
@@ -307,6 +317,7 @@ class IBKRManager:
         tp.orderType = "LMT"
         tp.totalQuantity = quantity
         tp.lmtPrice = take_profit_price
+        tp.tif = tif
         tp.parentId = parent_id
         tp.transmit = False
 
@@ -318,6 +329,7 @@ class IBKRManager:
         sl.orderType = "STP"
         sl.auxPrice = stop_price
         sl.totalQuantity = quantity
+        sl.tif = tif
         sl.parentId = parent_id
         sl.transmit = True
 
@@ -361,6 +373,7 @@ class IBKRManager:
         quantity: float,
         order_type: str = "MKT",
         price: Optional[float] = None,
+        tif: str = "GTC",
     ) -> int:
         if not self.client.isConnected():
             raise RuntimeError("IBKR client is not connected")
@@ -373,6 +386,7 @@ class IBKRManager:
         order.action = action.upper()
         order.orderType = order_type
         order.totalQuantity = quantity
+        order.tif = tif
         order.eTradeOnly = False  # Add this line
         order.firmQuoteOnly = False # Often needed alongside eTradeOnly
 
@@ -401,6 +415,7 @@ class IBKRManager:
         stop_price: float,
         take_profit_price: float,
         limit_price: Optional[float] = None,
+        tif: str = "GTC",
     ) -> Dict[str, int]:
         if not self.client.isConnected():
             raise RuntimeError("IBKR client is not connected")
@@ -414,6 +429,7 @@ class IBKRManager:
         parent.orderType = "LMT" if limit_price is not None else "MKT"
         parent.action = action.upper()
         parent.totalQuantity = quantity
+        parent.tif = tif
         if limit_price is not None and parent.orderType == "LMT":
             parent.lmtPrice = limit_price
         parent.transmit = False
@@ -425,6 +441,7 @@ class IBKRManager:
         tp.orderType = "LMT"
         tp.totalQuantity = quantity
         tp.lmtPrice = take_profit_price
+        tp.tif = tif
         tp.parentId = parent_id
         tp.transmit = False
 
@@ -435,6 +452,7 @@ class IBKRManager:
         sl.orderType = "STP"
         sl.auxPrice = stop_price
         sl.totalQuantity = quantity
+        sl.tif = tif
         sl.parentId = parent_id
         sl.transmit = True
 
@@ -465,10 +483,11 @@ class IBKRManager:
             self.logger.error("Failed to cancel order %s: %s", order_id, exc)
             raise
 
-    def close_position(self, symbol: str, quantity: Optional[float] = None) -> int:
+    def close_position(self, symbol: str, quantity: Optional[float] = None, tif: str = "GTC") -> int:
         """Close an existing position for `symbol` by submitting an opposite market order.
 
         If `quantity` is None, the full open position size will be closed.
+        `tif` specifies the time-in-force (default: "GTC").
         Returns the placed order id.
         """
         if not self.client.isConnected():
@@ -496,6 +515,6 @@ class IBKRManager:
         action = "SELL" if open_qty > 0 else "BUY"
 
         # Place a market order to close
-        order_id = self.place_order(symbol=symbol, action=action, quantity=qty_to_close, order_type="MKT")
-        self.logger.info("Submitted close order %s for %s qty=%.2f", order_id, symbol, qty_to_close)
+        order_id = self.place_order(symbol=symbol, action=action, quantity=qty_to_close, order_type="MKT", tif=tif)
+        self.logger.info("Submitted close order %s for %s qty=%.2f tif=%s", order_id, symbol, qty_to_close, tif)
         return order_id
