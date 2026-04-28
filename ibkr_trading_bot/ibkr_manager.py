@@ -23,6 +23,8 @@ class IBKRClient(EWrapper, EClient):
         self._positions_event = threading.Event()
         self.open_orders: List[Dict[str, object]] = []
         self._open_orders_event = threading.Event()
+        self._account_summary_map: Dict[int, Dict[str, str]] = {}
+        self._account_summary_events: Dict[int, threading.Event] = {}
         self.next_order_id = 1
 
     def nextValidId(self, orderId: int) -> None:
@@ -91,6 +93,15 @@ class IBKRClient(EWrapper, EClient):
         self.logger.debug("Open orders download complete")
         self._open_orders_event.set()
 
+    def accountSummary(self, reqId: int, account: str, tag: str, value: str, currency: str) -> None:
+        if reqId in self._account_summary_map:
+            self._account_summary_map[reqId][tag] = value
+
+    def accountSummaryEnd(self, reqId: int) -> None:
+        ev = self._account_summary_events.get(reqId)
+        if ev:
+            ev.set()
+
     def error(self, reqId: int, errorCode: int, errorString: str, *args) -> None:
         # Filter out informational connection status messages
         # Error codes 2101-2107 and 2158 are connection status messages, not actual errors
@@ -99,6 +110,14 @@ class IBKRClient(EWrapper, EClient):
             self.logger.debug("IBKR status. reqId=%s errCode=%s errMsg=%s", reqId, errorCode, errorString)
         else:
             self.logger.error("IBKR error. reqId=%s errCode=%s errMsg=%s", reqId, errorCode, errorString)
+            # Only unblock waiting historical data requests for truly terminal errors.
+            # Non-terminal warnings (pacing notices, subscription messages) can arrive
+            # alongside valid data and must not fire the event early.
+            terminal_hist_codes = {162, 200, 321, 322, 354, 420}
+            if errorCode in terminal_hist_codes:
+                ev = self._historical_data_events.get(reqId)
+                if ev is not None:
+                    ev.set()
 
 
 class IBKRManager:
@@ -147,6 +166,7 @@ class IBKRManager:
         bar_size: str = "30 mins",
         what_to_show: str = "TRADES",
         use_rth: int = 1,
+        contract_details: Optional[Dict[str, str]] = None,
     ) -> List[Dict[str, object]]:
         if not self.client.isConnected():
             raise RuntimeError("IBKR client is not connected")
@@ -157,7 +177,15 @@ class IBKRManager:
         ev = threading.Event()
         self.client._historical_data_events[request_id] = ev
 
-        contract = self._build_stock_contract(symbol)
+        if contract_details:
+            # Build custom contract
+            contract = Contract()
+            contract.symbol = symbol
+            contract.secType = contract_details.get("secType", "STK")
+            contract.currency = contract_details.get("currency", "USD")
+            contract.exchange = contract_details.get("exchange", "SMART")
+        else:
+            contract = self._build_stock_contract(symbol)
 
         request_time = ""  # Use empty string for current time
 
@@ -191,7 +219,23 @@ class IBKRManager:
         self.client._historical_data_events.pop(request_id, None)
         return bars
 
-    def get_latest_close(self, symbol: str, timeout: int = 20) -> Optional[float]:
+    def get_crypto_price(self, symbol: str, exchange: str, currency: str) -> Optional[float]:
+        """Get the latest price for a crypto symbol."""
+        bars = self.fetch_historical_data(
+            symbol=symbol,
+            duration="1 D",
+            bar_size="1 day",
+            what_to_show="MIDPOINT",
+            use_rth=1,
+            contract_details={"secType": "CRYPTO", "exchange": exchange, "currency": currency}
+        )
+        if not bars:
+            return None
+        # historical bars are appended in order; take the last
+        last = bars[-1]
+        return float(last.get("close"))
+
+    def get_latest_close(self, symbol: str, timeout: int = 10) -> Optional[float]:
         bars = self.fetch_historical_data(symbol=symbol, duration="1 D", bar_size="1 day", what_to_show="TRADES")
         if not bars:
             return None
@@ -262,7 +306,7 @@ class IBKRManager:
         order = Order()
         order.action = action.upper()
         order.orderType = order_type
-        order.totalQuantity = quantity
+        order.totalQuantity = round(quantity,4)
         order.tif = tif
 
         if price is not None and order_type == "LMT":
@@ -303,10 +347,10 @@ class IBKRManager:
         parent = Order()
         parent.orderType = "LMT" if limit_price is not None else "MKT"
         parent.action = action.upper()
-        parent.totalQuantity = quantity
+        parent.totalQuantity = round(quantity,4)
         parent.tif = tif
         if limit_price is not None and parent.orderType == "LMT":
-            parent.lmtPrice = limit_price
+            parent.lmtPrice = round(limit_price, 4)
         parent.transmit = False
 
         # Child: take-profit (limit opposite side)
@@ -315,8 +359,8 @@ class IBKRManager:
         tp = Order()
         tp.action = "SELL" if action.lower() == "buy" else "BUY"
         tp.orderType = "LMT"
-        tp.totalQuantity = quantity
-        tp.lmtPrice = take_profit_price
+        tp.totalQuantity = round(quantity,4)
+        tp.lmtPrice = round(take_profit_price,4)
         tp.tif = tif
         tp.parentId = parent_id
         tp.transmit = False
@@ -327,8 +371,8 @@ class IBKRManager:
         sl = Order()
         sl.action = "SELL" if action.lower() == "buy" else "BUY"
         sl.orderType = "STP"
-        sl.auxPrice = stop_price
-        sl.totalQuantity = quantity
+        sl.auxPrice = round(stop_price, 4)
+        sl.totalQuantity = round(quantity,4)
         sl.tif = tif
         sl.parentId = parent_id
         sl.transmit = True
@@ -341,24 +385,75 @@ class IBKRManager:
 
         return {"parent": parent_id, "tp": tp_id, "sl": sl_id}
 
-    def _build_option_contract(
+    def get_account_summary(self, tags: List[str] = ["SettledCash"]) -> Dict[str, str]:
+        """Fetch account summary values like SettledCash."""
+        if not self.client.isConnected():
+            raise RuntimeError("IBKR client is not connected")
+
+        request_id = int(time.time() * 1000) % 100000
+        self.client._account_summary_map[request_id] = {}
+        ev = threading.Event()
+        self.client._account_summary_events[request_id] = ev
+
+        self.client.reqAccountSummary(request_id, "All", ",".join(tags))
+
+        if not ev.wait(timeout=10):
+            raise TimeoutError("Timed out fetching account summary")
+
+        summary = self.client._account_summary_map.get(request_id, {})
+        self.client._account_summary_map.pop(request_id, None)
+        self.client._account_summary_events.pop(request_id, None)
+        return summary
+
+    def get_settled_cash(self) -> Optional[float]:
+        """Get settled cash from IBKR account."""
+        try:
+            summary = self.get_account_summary(["SettledCash"])
+            return float(summary.get("SettledCash", 0))
+        except Exception as e:
+            self.logger.warning(f"Failed to fetch settled cash: {e}")
+            return None
+
+    def get_stock_price(self, symbol: str) -> Optional[float]:
+        """Get latest close price for a stock (proxy for current price)."""
+        return self.get_latest_close(symbol)
+
+    def calculate_atr(self, symbol: str, length: int = 14, bar_size: str = "1 day", duration: str = "2 M", is_crypto: bool = False, crypto_info: Optional[Dict] = None) -> Optional[float]:
+        """Calculate ATR from historical data."""
+        try:
+            contract_details = None
+            actual_symbol = symbol
+            if is_crypto and crypto_info:
+                contract_details = {
+                    "secType": "CRYPTO",
+                    "exchange": crypto_info["exchange"],
+                    "currency": crypto_info["currency"]
+                }
+                actual_symbol = crypto_info["symbol"]
+            bars = self.fetch_historical_data(actual_symbol, duration=duration, bar_size=bar_size, contract_details=contract_details,what_to_show="MIDPOINT")
+            if len(bars) < length + 1:
+                return None
+            trs = []
+            for i in range(1, len(bars)):
+                high = float(bars[i]["high"])
+                low = float(bars[i]["low"])
+                prev_close = float(bars[i-1]["close"])
+                tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
+                trs.append(tr)
+            return sum(trs[-length:]) / length
+        except Exception as e:
+            self.logger.error(f"Failed to calculate ATR for {symbol}: {e}")
+            return None
+
+    def _build_crypto_contract(
         self,
-        underlying: str,
-        expiry: str,
-        strike: float,
-        right: str,
-        multiplier: str = "100",
+        symbol: str,
+        exchange: str = "PAXOS",
         currency: str = "USD",
-        exchange: str = "SMART",
     ) -> Contract:
         contract = Contract()
-        contract.symbol = underlying
-        contract.secType = "OPT"
-        # IB accepts YYYYMMDD or YYYYMM format for lastTradeDateOrContractMonth
-        contract.lastTradeDateOrContractMonth = expiry
-        contract.strike = float(strike)
-        contract.right = right.upper()
-        contract.multiplier = multiplier
+        contract.symbol = symbol
+        contract.secType = "CRYPTO"
         contract.currency = currency
         contract.exchange = exchange
         return contract
@@ -385,7 +480,7 @@ class IBKRManager:
         order = Order()
         order.action = action.upper()
         order.orderType = order_type
-        order.totalQuantity = quantity
+        order.totalQuantity = round(quantity,4)
         order.tif = tif
         order.eTradeOnly = False  # Add this line
         order.firmQuoteOnly = False # Often needed alongside eTradeOnly
@@ -428,7 +523,7 @@ class IBKRManager:
         parent = Order()
         parent.orderType = "LMT" if limit_price is not None else "MKT"
         parent.action = action.upper()
-        parent.totalQuantity = quantity
+        parent.totalQuantity = round(quantity,4)
         parent.tif = tif
         if limit_price is not None and parent.orderType == "LMT":
             parent.lmtPrice = limit_price
@@ -439,8 +534,8 @@ class IBKRManager:
         tp = Order()
         tp.action = "SELL" if action.lower() == "buy" else "BUY"
         tp.orderType = "LMT"
-        tp.totalQuantity = quantity
-        tp.lmtPrice = take_profit_price
+        tp.totalQuantity = round(quantity,4)
+        tp.lmtPrice = round(take_profit_price,4)
         tp.tif = tif
         tp.parentId = parent_id
         tp.transmit = False
@@ -450,8 +545,8 @@ class IBKRManager:
         sl = Order()
         sl.action = "SELL" if action.lower() == "buy" else "BUY"
         sl.orderType = "STP"
-        sl.auxPrice = stop_price
-        sl.totalQuantity = quantity
+        sl.auxPrice = round(stop_price, 4)
+        sl.totalQuantity = round(quantity,4)
         sl.tif = tif
         sl.parentId = parent_id
         sl.transmit = True
@@ -468,6 +563,115 @@ class IBKRManager:
         self.client.placeOrder(parent_id, contract, parent)
         self.client.placeOrder(tp_id, contract, tp)
         self.client.placeOrder(sl_id, contract, sl)
+
+        return {"parent": parent_id, "tp": tp_id, "sl": sl_id}
+
+    def place_crypto_order(
+        self,
+        symbol: str,
+        exchange: str,
+        currency: str,
+        action: str,
+        quantity: float,
+        order_type: str = "MKT",
+        price: Optional[float] = None,
+        tif: str = "IOC",
+    ) -> int:
+        if not self.client.isConnected():
+            raise RuntimeError("IBKR client is not connected")
+
+        order_id = self.client.next_order_id
+        self.client.next_order_id += 1
+
+        contract = self._build_crypto_contract(symbol, exchange, currency)
+        order = Order()
+        order.action = action.upper()
+        order.orderType = order_type
+        if(action == "SELL" or action == "Sell" or action == "sell"):
+            order.totalQuantity = quantity
+        else:
+            order.cashQty = 500  # For crypto, use cashQty instead of totalQuantity
+        order.tif = tif
+
+        if price is not None and order_type == "LMT":
+            order.lmtPrice = price
+
+        self.logger.debug(
+            "Placing crypto order %s for %.8f %s (type=%s)",
+            order_id,
+            quantity,
+            symbol,
+            order_type,
+        )
+        self.client.placeOrder(order_id, contract, order)
+        return order_id
+
+    def place_crypto_bracket_order(
+        self,
+        symbol: str,
+        exchange: str,
+        currency: str,
+        action: str,
+        quantity: float,
+        stop_price: float,
+        take_profit_price: float,
+        limit_price: Optional[float] = None,
+        tif: str = "IOC",
+    ) -> Dict[str, int]:
+        """Place a crypto bracket order: parent (market or limit) + TP + SL.
+
+        Returns a dict with the created order IDs: {'parent': id, 'tp': id, 'sl': id}
+        """
+        if not self.client.isConnected():
+            raise RuntimeError("IBKR client is not connected")
+        tif = "IOC"  # For crypto, default to IOC to avoid orphaned orders
+        contract = self._build_crypto_contract(symbol, exchange, currency)
+
+        parent_id = self.client.next_order_id
+        self.client.next_order_id += 1
+
+        parent = Order()
+        parent.orderType = "LMT" if limit_price is not None else "MKT"
+        parent.action = action.upper()
+      #  parent.totalQuantity = round(quantity,4)
+        parent.cashQty = 500  # For crypto, use cashQty instead of totalQuantity
+        parent.tif = tif
+        # adding stop loss here itself 
+        parent.auxPrice = round(stop_price,2)  # For crypto, set auxPrice on parent for better stop-loss handling
+        if limit_price is not None and parent.orderType == "LMT":
+            parent.lmtPrice = round(limit_price, 2)
+        parent.transmit = True #False # For crypto, transmit the parent immediately to avoid orphaned child orders. The auxPrice will help ensure the stop-loss is active even if the parent fills partially.
+
+        # Child: take-profit (limit opposite side)
+        tp_id = self.client.next_order_id
+        self.client.next_order_id += 1
+        tp = Order()
+        tp.action = "SELL" if action.lower() == "buy" else "BUY"
+        tp.orderType = "LMT"
+        #tp.totalQuantity = round(quantity,4)
+        tp.cashQty = 500  # For crypto, use cashQty instead of totalQuantity
+        tp.lmtPrice = round(take_profit_price, 4)
+        tp.tif = tif
+        tp.parentId = parent_id
+        tp.transmit = False
+
+        # Child: stop-loss (stop opposite side). This will be the last order and will transmit the group.
+        sl_id = self.client.next_order_id
+        self.client.next_order_id += 1
+        sl = Order()
+        sl.action = "SELL" if action.lower() == "buy" else "BUY"
+        sl.orderType = "STP"
+        sl.auxPrice = round(stop_price, 4)
+        sl.totalQuantity = round(quantity,4)
+        sl.tif = tif
+        sl.parentId = parent_id
+        sl.transmit = True
+
+        # Place orders
+        self.logger.debug("Placing crypto bracket order parent=%s tp=%s sl=%s for %s", parent_id, tp_id, sl_id, symbol)
+        self.client.placeOrder(parent_id, contract, parent)
+#        self.client.placeOrder(tp_id, contract, tp)
+#        self.client.placeOrder(sl_id, contract, sl)
 
         return {"parent": parent_id, "tp": tp_id, "sl": sl_id}
 
@@ -517,4 +721,40 @@ class IBKRManager:
         # Place a market order to close
         order_id = self.place_order(symbol=symbol, action=action, quantity=qty_to_close, order_type="MKT", tif=tif)
         self.logger.info("Submitted close order %s for %s qty=%.2f tif=%s", order_id, symbol, qty_to_close, tif)
+        return order_id
+
+    def close_crypto_position(self, symbol: str, exchange: str, currency: str, quantity: Optional[float] = None, tif: str = "IOC") -> int:
+        """Close an existing crypto position for `symbol` by submitting an opposite market order.
+
+        If `quantity` is None, the full open position size will be closed.
+        `tif` specifies the time-in-force (default: "GTC").
+        Returns the placed order id.
+        """
+        if not self.client.isConnected():
+            raise RuntimeError("IBKR client is not connected")
+        tif = "IOC"  # For crypto, default to IOC to avoid orphaned orders
+        # Refresh positions
+        positions = self.get_positions()
+        match = None
+        for p in positions:
+            if p.get("symbol") == symbol:
+                match = p
+                break
+
+        if match is None:
+            raise ValueError(f"No open position found for crypto symbol {symbol}")
+
+        open_qty = float(match.get("position", 0))
+        if open_qty == 0:
+            raise ValueError(f"Position for {symbol} is zero")
+
+        # Determine quantity to close
+        qty_to_close = abs(open_qty) if quantity is None else float(quantity)
+
+        # Action is opposite of the current position sign
+        action = "SELL" if open_qty > 0 else "BUY"
+
+        # Place a market order to close
+        order_id = self.place_crypto_order(symbol=symbol, exchange=exchange, currency=currency, action=action, quantity=qty_to_close, order_type="MKT", tif=tif)
+        self.logger.info("Submitted crypto close order %s for %s qty=%.8f tif=%s", order_id, symbol, qty_to_close, tif)
         return order_id

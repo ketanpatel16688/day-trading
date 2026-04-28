@@ -1,13 +1,30 @@
 {
   "ibkr": {
     "host": "127.0.0.1",
-    "port": 7497,
+    "port": 4002,
     "client_id": 1001
   },
   "supported_tickers": [
     "AAPL",
     "MSFT"
   ],
+  "crypto_mappings": {
+    "SOLUSD": {
+      "symbol": "SOL",
+      "exchange": "PAXOS",
+      "currency": "USD"
+    },
+    "BTCUSD": {
+      "symbol": "BTC",
+      "exchange": "PAXOS",
+      "currency": "USD"
+    },
+    "ETHUSD": {
+      "symbol": "ETH",
+      "exchange": "PAXOS",
+      "currency": "USD"
+    }
+  },
   "account_value": 100000,
   "risk_pct": 0.01,
   "atr_multiplier": 3.0,
@@ -19,10 +36,14 @@
   },
   "alert": {
     "default_qty": 1,
-    "default_tif": "GTC"
+    "default_tif": "GTC",
+    "crypto_max_trade_value": 500
+  },
+  "risk": {
+    "initial_capital": 100000
   },
   "logging": {
-    "log_level": "INFO",
+    "log_level": "DEBUG",
     "error_log": "logs/error.log",
     "trade_log": "logs/trade.log",
     "execution_log": "logs/execution.log",

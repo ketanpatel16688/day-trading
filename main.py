@@ -80,6 +80,13 @@ def main() -> None:
     parser.add_argument("--option-sl", help="Stop-loss price for option (optional)", type=float)
     parser.add_argument("--option-tp", help="Take-profit price for option (optional)", type=float)
     
+    parser.add_argument("--crypto", help="Crypto ticker (e.g. SOL, BTC)", metavar="CRYPTO")
+    parser.add_argument("--crypto-side", help="buy or sell", choices=["buy", "sell"], default="buy")
+    parser.add_argument("--crypto-qty", help="Quantity for crypto order", type=float, default=0.001)
+    parser.add_argument("--crypto-limit", help="Limit price for crypto order (optional)", type=float)
+    parser.add_argument("--crypto-sl", help="Stop-loss price for crypto (optional)", type=float)
+    parser.add_argument("--crypto-tp", help="Take-profit price for crypto (optional)", type=float)
+    
     parser.add_argument("--day-order", help="Use DAY time-in-force instead of GTC (for day trading)", action="store_true")
     
     parser.add_argument("--cancel-order", help="Cancel a pending order by ORDER_ID", type=int)
@@ -100,15 +107,6 @@ def main() -> None:
     execution_logger.info(">>>>>>>> Starting Trading Bot <<<<<<<")
 
     ibkr_config = config.get("ibkr", {})
-#    tickers: List[str] = config.get("supported_tickers", [])
-
-#    if not tickers:
-#        error_logger.error("No supported tickers defined in config.json")
-#        return
-
-#    strategy_name = config.get("strategy", {}).get("name", "SMARsiAtrStrategy")
-#   strategy_class = get_strategy_class(strategy_name)
-#   strategy = strategy_class(IndicatorCalculator(), config)
 
     manager = IBKRManager(
         host=ibkr_config.get("host", "127.0.0.1"),
@@ -130,13 +128,24 @@ def main() -> None:
             args.debug_watchlist,
             args.bracket,
             args.option,
+            args.crypto,
             args.cancel_order is not None,
-            args.close_position,
+            args.close_position
         ]):
             if args.debug_close:
                 symbol = args.debug_close
                 try:
-                    close_price = manager.get_latest_close(symbol)
+                    # Check crypto_mappings by key ("SOLUSD") or by symbol value ("SOL")
+                    crypto_mappings = config.get("crypto_mappings", {})
+                    crypto_info = crypto_mappings.get(symbol) or next(
+                        (v for v in crypto_mappings.values() if v["symbol"] == symbol), None
+                    )
+                    if crypto_info:
+                        close_price = manager.get_crypto_price(
+                            crypto_info["symbol"], crypto_info["exchange"], crypto_info["currency"]
+                        )
+                    else:
+                        close_price = manager.get_latest_close(symbol)
                     execution_logger.info("Latest close for %s: %s", symbol, close_price)
                     print_yellow(f"Latest close for {symbol}: {close_price}")
                 except Exception as exc:
@@ -351,6 +360,60 @@ def main() -> None:
                 except Exception as exc:
                     error_logger.error("Failed to place option order for %s: %s", opt, exc)
                     print_red(f"Failed to place option order for {opt}: {exc}")
+
+                return
+
+            if args.crypto:
+                ticker = args.crypto
+                side = args.crypto_side
+                qty = float(args.crypto_qty)
+                sl = args.crypto_sl
+                tp = args.crypto_tp
+                limit = args.crypto_limit
+
+                # Load config to get crypto mapping
+                cfg = load_config(config_path)
+                crypto_mappings = cfg.get("crypto_mappings", {})
+                if ticker not in crypto_mappings:
+                    error_logger.error("Crypto ticker %s not found in config crypto_mappings", ticker)
+                    print_red(f"Crypto ticker {ticker} not found in config crypto_mappings")
+                    return
+
+                crypto_info = crypto_mappings[ticker]
+
+                try:
+                    if sl is not None and tp is not None:
+                        # Place bracket order
+                        ids = manager.place_crypto_bracket_order(
+                            symbol=crypto_info["symbol"],
+                            exchange=crypto_info["exchange"],
+                            currency=crypto_info["currency"],
+                            action=side,
+                            quantity=qty,
+                            stop_price=float(sl),
+                            take_profit_price=float(tp),
+                            limit_price=float(limit) if limit is not None else None,
+                            tif="IOC",
+                        )
+                        trade_logger.info("Placed crypto bracket order for %s: %s", ticker, ids)
+                        print_yellow(f"Placed crypto bracket order for {ticker}: parent={ids['parent']} tp={ids['tp']} sl={ids['sl']}")
+                    else:
+                        # Place simple order
+                        oid = manager.place_crypto_order(
+                            symbol=crypto_info["symbol"],
+                            exchange=crypto_info["exchange"],
+                            currency=crypto_info["currency"],
+                            action=side,
+                            quantity=qty,
+                            order_type="LMT" if limit is not None else "MKT",
+                            price=float(limit) if limit is not None else None,
+                            tif="IOC",
+                        )
+                        trade_logger.info("Placed crypto order for %s: %s", ticker, oid)
+                        print_yellow(f"Placed crypto order for {ticker}: order_id={oid}")
+                except Exception as exc:
+                    error_logger.error("Failed to place crypto order for %s: %s", ticker, exc)
+                    print_red(f"Failed to place crypto order for {ticker}: {exc}")
 
                 return
 
