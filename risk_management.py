@@ -1,5 +1,6 @@
 import logging
 from typing import Dict, Optional, Tuple
+from venv import logger
 
 from ibkr_trading_bot.ibkr_manager import IBKRManager
 
@@ -40,9 +41,13 @@ class RiskManager:
         self.logger.info(f"Calculated risk-based qty for {symbol}: {qty} (capital={capital}, ATR={atr})")
         return qty
 
-    def calculate_sl(self, current_price: float, atr: float, action: str) -> float:
+    def calculate_sl(self, current_price: float, atr: float, action: str, is_crypto: bool = False) -> float:
         """Calculate stop-loss price: current_price ± 3*ATR."""
-        multiplier = 3.0
+        if is_crypto:
+            multiplier = 2.5    #TBD: Will revisit this number later based on backtesting results. Crypto can be more volatile, so we might want a wider stop-loss to avoid getting stopped out by normal price swings.
+        else:
+            multiplier = 2.0
+
         if action.upper() == "BUY":
             return current_price - (multiplier * atr)
         elif action.upper() == "SELL":
@@ -58,6 +63,8 @@ class RiskManager:
         if not current_price or not atr:
             return None, None
         
+        self.logger.debug(f"Current price for {symbol}: {current_price}, ATR: {atr}, calculated qty before capping: {qty}")
+
         # Cap crypto qty at $500 / current_price
         if is_crypto:
             crypto_max_value = self.config.get("alert", {}).get("crypto_max_trade_value", 500)
@@ -66,5 +73,5 @@ class RiskManager:
                 qty = capped_qty
                 self.logger.info(f"Capped crypto qty for {symbol} at {qty} (max $500)")
         
-        sl_price = self.calculate_sl(current_price, atr, action)
+        sl_price = self.calculate_sl(current_price, atr, action,is_crypto)
         return qty, sl_price

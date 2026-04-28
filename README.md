@@ -2,6 +2,16 @@
 
 This repository contains a one-shot Python trading bot skeleton that uses Interactive Brokers (IBKR) APIs to fetch market data and place orders.
 
+## Quick Start - Testing
+
+```bash
+# Before committing code, ALWAYS run:
+python test_function.py
+
+# Expected: All 41 tests pass
+# [OK] ALL TESTS PASSED - REPO IS HEALTHY
+```
+
 ## Features
 
 - Separate `IBKRManager` for data and order management
@@ -12,6 +22,8 @@ This repository contains a one-shot Python trading bot skeleton that uses Intera
 - Dedicated logging for execution, trade, and error events
 - **Crypto trading support** for cryptocurrencies via TradingView alerts
 - Support for stocks, options, and crypto orders via command line
+- **Comprehensive Error Handling** - parameter validation, input checks, proper error codes
+- **41-Test Suite** - catches regressions before commit
 
 ## Setup
 
@@ -118,8 +130,74 @@ python main.py --option "AAPL 20240821 C 170" --option-side buy --option-qty 1 -
 - `ibkr_trading_bot/strategy.py` — base strategy and concrete strategy implementation
 - `ibkr_trading_bot/trading_journal.py` — trade logging and journaling
 
+## Error Handling & Testing
+
+### Run Tests Before Committing
+
+```bash
+python test_function.py
+```
+
+**Results**:
+- ✅ If all 41 tests pass → Safe to commit
+- ❌ If any test fails → Fix before committing
+
+### What Gets Tested
+
+**41 Comprehensive Tests** covering:
+- Parameter validation (negative qty, invalid action, etc.)
+- Connection requirements for all APIs
+- Error handling and exception logging
+- Type consistency across APIs
+- Edge cases (very large/small quantities)
+- Crypto-specific functionality
+- Import and dependency checks
+
+### Test Commands
+
+```bash
+# Run all tests
+python test_function.py
+
+# Run with verbose output
+python test_function.py -v
+
+# Test specific API
+python test_function.py TestIBKRManagerParameterValidation
+```
+
+### Key Improvements Made
+
+**Critical Bugs Fixed**:
+1. Null pointer in `place_crypto_order()` - now checks position exists
+2. Undefined variable `tp_price` in webhook - now defined before use
+3. Missing webhook input validation - now validates required fields
+4. Wrong HTTP status codes - now returns proper 4xx/5xx for errors
+5. Silent exception swallowing - now logs all failures
+
+**Parameter Validation Added**:
+- `place_order()` - validates action, quantity, order_type, price
+- `place_bracket_order()` - validates action, qty, stop_price, take_profit_price
+- `place_option_order()` - validates right, strike, quantity
+- `place_crypto_order()` - validates action, qty, position existence
+
+**Error Handling Improved**:
+- All exceptions now logged with context
+- Proper HTTP status codes (200 success, 400 client error, 500 server error)
+- Better error messages for debugging
+
+### Pre-Commit Workflow
+
+```bash
+1. Make code changes
+2. Run: python test_function.py
+3. If all pass (41/41) → commit
+4. If any fail → fix → go to step 2
+```
+
 ## Notes
 
 - This code is structured as a starter template, with placeholders for live trading logic.
 - Position sizing is currently represented with pseudocode based on `account_value`, `risk_pct`, and `atr_multiplier`.
 - Crypto trading uses PAXOS exchange by default, but can be configured per ticker in `crypto_mappings`.
+- **Always run tests before committing** to catch regressions early.

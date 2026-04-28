@@ -409,8 +409,12 @@ def main() -> None:
                             price=float(limit) if limit is not None else None,
                             tif="IOC",
                         )
-                        trade_logger.info("Placed crypto order for %s: %s", ticker, oid)
-                        print_yellow(f"Placed crypto order for {ticker}: order_id={oid}")
+                        if oid > 0:
+                            trade_logger.info("Placed crypto order for %s: %s", ticker, oid)
+                            print_yellow(f"Placed crypto order for {ticker}: order_id={oid}")
+                        else:
+                            error_logger.error("Failed to place crypto order for %s: %s", ticker, oid)
+                            print_red(f"Failed to place crypto order for {ticker}: {oid}")
                 except Exception as exc:
                     error_logger.error("Failed to place crypto order for %s: %s", ticker, exc)
                     print_red(f"Failed to place crypto order for {ticker}: {exc}")

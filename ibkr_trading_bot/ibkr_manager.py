@@ -264,7 +264,16 @@ class IBKRManager:
             pass
 
         return self.client.positions
-
+    
+    def get_ticker_position(self, symbol: str, timeout: int = 5) -> Optional[Dict[str, object]]:
+        positions = self.get_positions(timeout=timeout)
+        for pos in positions:
+            if pos.get("symbol") == symbol:
+                self.logger.debug(f"Found position for {symbol}: {pos}")
+                return pos
+        self.logger.debug(f"No position found for {symbol}")
+        return None
+    
     def get_open_orders(self, timeout: int = 5) -> List[Dict[str, object]]:
         if not self.client.isConnected():
             raise RuntimeError("IBKR client is not connected")
@@ -299,14 +308,24 @@ class IBKRManager:
         if not self.client.isConnected():
             raise RuntimeError("IBKR client is not connected")
 
+        action_upper = action.upper()
+        if action_upper not in ("BUY", "SELL"):
+            raise ValueError(f"Invalid action: {action}. Must be BUY or SELL")
+        if quantity <= 0:
+            raise ValueError(f"Invalid quantity: {quantity}. Must be > 0")
+        if order_type not in ("MKT", "LMT", "STP"):
+            raise ValueError(f"Invalid order_type: {order_type}. Must be MKT, LMT, or STP")
+        if order_type == "LMT" and price is None:
+            raise ValueError("LMT orders require a price")
+
         order_id = self.client.next_order_id
         self.client.next_order_id += 1
 
         contract = self._build_stock_contract(symbol)
         order = Order()
-        order.action = action.upper()
+        order.action = action_upper
         order.orderType = order_type
-        order.totalQuantity = round(quantity,4)
+        order.totalQuantity = round(quantity, 4)
         order.tif = tif
 
         if price is not None and order_type == "LMT":
@@ -339,6 +358,18 @@ class IBKRManager:
         if not self.client.isConnected():
             raise RuntimeError("IBKR client is not connected")
 
+        action_upper = action.upper()
+        if action_upper not in ("BUY", "SELL"):
+            raise ValueError(f"Invalid action: {action}. Must be BUY or SELL")
+        if quantity <= 0:
+            raise ValueError(f"Invalid quantity: {quantity}. Must be > 0")
+        if stop_price <= 0:
+            raise ValueError(f"Invalid stop_price: {stop_price}. Must be > 0")
+        if take_profit_price <= 0:
+            raise ValueError(f"Invalid take_profit_price: {take_profit_price}. Must be > 0")
+        if limit_price is not None and limit_price <= 0:
+            raise ValueError(f"Invalid limit_price: {limit_price}. Must be > 0")
+
         contract = self._build_stock_contract(symbol)
 
         parent_id = self.client.next_order_id
@@ -346,8 +377,8 @@ class IBKRManager:
 
         parent = Order()
         parent.orderType = "LMT" if limit_price is not None else "MKT"
-        parent.action = action.upper()
-        parent.totalQuantity = round(quantity,4)
+        parent.action = action_upper
+        parent.totalQuantity = round(quantity, 4)
         parent.tif = tif
         if limit_price is not None and parent.orderType == "LMT":
             parent.lmtPrice = round(limit_price, 4)
@@ -357,10 +388,10 @@ class IBKRManager:
         tp_id = self.client.next_order_id
         self.client.next_order_id += 1
         tp = Order()
-        tp.action = "SELL" if action.lower() == "buy" else "BUY"
+        tp.action = "SELL" if action_upper == "BUY" else "BUY"
         tp.orderType = "LMT"
-        tp.totalQuantity = round(quantity,4)
-        tp.lmtPrice = round(take_profit_price,4)
+        tp.totalQuantity = round(quantity, 4)
+        tp.lmtPrice = round(take_profit_price, 4)
         tp.tif = tif
         tp.parentId = parent_id
         tp.transmit = False
@@ -369,10 +400,10 @@ class IBKRManager:
         sl_id = self.client.next_order_id
         self.client.next_order_id += 1
         sl = Order()
-        sl.action = "SELL" if action.lower() == "buy" else "BUY"
+        sl.action = "SELL" if action_upper == "BUY" else "BUY"
         sl.orderType = "STP"
         sl.auxPrice = round(stop_price, 4)
-        sl.totalQuantity = round(quantity,4)
+        sl.totalQuantity = round(quantity, 4)
         sl.tif = tif
         sl.parentId = parent_id
         sl.transmit = True
@@ -458,6 +489,23 @@ class IBKRManager:
         contract.exchange = exchange
         return contract
 
+    def _build_option_contract(
+        self,
+        underlying: str,
+        expiry: str,
+        strike: float,
+        right: str,
+    ) -> Contract:
+        contract = Contract()
+        contract.symbol = underlying
+        contract.secType = "OPT"
+        contract.currency = "USD"
+        contract.exchange = "SMART"
+        contract.lastTradeDateOrContractMonth = expiry
+        contract.strike = strike
+        contract.right = right.upper()
+        return contract
+
     def place_option_order(
         self,
         underlying: str,
@@ -473,17 +521,31 @@ class IBKRManager:
         if not self.client.isConnected():
             raise RuntimeError("IBKR client is not connected")
 
+        action_upper = action.upper()
+        if action_upper not in ("BUY", "SELL"):
+            raise ValueError(f"Invalid action: {action}. Must be BUY or SELL")
+        if quantity <= 0:
+            raise ValueError(f"Invalid quantity: {quantity}. Must be > 0")
+        if order_type not in ("MKT", "LMT", "STP"):
+            raise ValueError(f"Invalid order_type: {order_type}. Must be MKT, LMT, or STP")
+        if order_type == "LMT" and price is None:
+            raise ValueError("LMT orders require a price")
+        if right.upper() not in ("C", "P"):
+            raise ValueError(f"Invalid right: {right}. Must be C or P")
+        if strike <= 0:
+            raise ValueError(f"Invalid strike: {strike}. Must be > 0")
+
         order_id = self.client.next_order_id
         self.client.next_order_id += 1
 
         contract = self._build_option_contract(underlying, expiry, strike, right)
         order = Order()
-        order.action = action.upper()
+        order.action = action_upper
         order.orderType = order_type
-        order.totalQuantity = round(quantity,4)
+        order.totalQuantity = round(quantity, 4)
         order.tif = tif
-        order.eTradeOnly = False  # Add this line
-        order.firmQuoteOnly = False # Often needed alongside eTradeOnly
+        order.eTradeOnly = False
+        order.firmQuoteOnly = False
 
         if price is not None and order_type == "LMT":
             order.lmtPrice = price
@@ -515,6 +577,22 @@ class IBKRManager:
         if not self.client.isConnected():
             raise RuntimeError("IBKR client is not connected")
 
+        action_upper = action.upper()
+        if action_upper not in ("BUY", "SELL"):
+            raise ValueError(f"Invalid action: {action}. Must be BUY or SELL")
+        if quantity <= 0:
+            raise ValueError(f"Invalid quantity: {quantity}. Must be > 0")
+        if right.upper() not in ("C", "P"):
+            raise ValueError(f"Invalid right: {right}. Must be C or P")
+        if strike <= 0:
+            raise ValueError(f"Invalid strike: {strike}. Must be > 0")
+        if stop_price <= 0:
+            raise ValueError(f"Invalid stop_price: {stop_price}. Must be > 0")
+        if take_profit_price <= 0:
+            raise ValueError(f"Invalid take_profit_price: {take_profit_price}. Must be > 0")
+        if limit_price is not None and limit_price <= 0:
+            raise ValueError(f"Invalid limit_price: {limit_price}. Must be > 0")
+
         contract = self._build_option_contract(underlying, expiry, strike, right)
 
         parent_id = self.client.next_order_id
@@ -522,8 +600,8 @@ class IBKRManager:
 
         parent = Order()
         parent.orderType = "LMT" if limit_price is not None else "MKT"
-        parent.action = action.upper()
-        parent.totalQuantity = round(quantity,4)
+        parent.action = action_upper
+        parent.totalQuantity = round(quantity, 4)
         parent.tif = tif
         if limit_price is not None and parent.orderType == "LMT":
             parent.lmtPrice = limit_price
@@ -532,10 +610,10 @@ class IBKRManager:
         tp_id = self.client.next_order_id
         self.client.next_order_id += 1
         tp = Order()
-        tp.action = "SELL" if action.lower() == "buy" else "BUY"
+        tp.action = "SELL" if action_upper == "BUY" else "BUY"
         tp.orderType = "LMT"
-        tp.totalQuantity = round(quantity,4)
-        tp.lmtPrice = round(take_profit_price,4)
+        tp.totalQuantity = round(quantity, 4)
+        tp.lmtPrice = round(take_profit_price, 4)
         tp.tif = tif
         tp.parentId = parent_id
         tp.transmit = False
@@ -543,10 +621,10 @@ class IBKRManager:
         sl_id = self.client.next_order_id
         self.client.next_order_id += 1
         sl = Order()
-        sl.action = "SELL" if action.lower() == "buy" else "BUY"
+        sl.action = "SELL" if action_upper == "BUY" else "BUY"
         sl.orderType = "STP"
         sl.auxPrice = round(stop_price, 4)
-        sl.totalQuantity = round(quantity,4)
+        sl.totalQuantity = round(quantity, 4)
         sl.tif = tif
         sl.parentId = parent_id
         sl.transmit = True
@@ -580,18 +658,42 @@ class IBKRManager:
         if not self.client.isConnected():
             raise RuntimeError("IBKR client is not connected")
 
+        action_upper = action.upper()
+
+        # Validate action
+        if action_upper not in ("BUY", "SELL"):
+            raise ValueError(f"Invalid action: {action}. Must be BUY or SELL")
+
+        # Validate quantity
+        if quantity <= 0:
+            raise ValueError(f"Invalid quantity: {quantity}. Must be > 0")
+
         order_id = self.client.next_order_id
         self.client.next_order_id += 1
 
         contract = self._build_crypto_contract(symbol, exchange, currency)
         order = Order()
-        order.action = action.upper()
+        order.action = action_upper
         order.orderType = order_type
-        if(action == "SELL" or action == "Sell" or action == "sell"):
-            order.totalQuantity = quantity
-        else:
-            order.cashQty = 500  # For crypto, use cashQty instead of totalQuantity
         order.tif = tif
+
+        self.logger.debug(f"Placing crypto order with action {action_upper} and quantity {quantity}")
+
+        if action_upper == "SELL":
+            # For SELL: use provided quantity or fetch from position
+            if quantity > 1:
+                order.totalQuantity = round(quantity, 4)
+            else:
+                pos = self.get_ticker_position(symbol)
+                if pos is None:
+                    raise ValueError(f"No open position found for {symbol} to sell")
+                fetched_qty = float(pos.get("position", 0))
+                if fetched_qty <= 0:
+                    raise ValueError(f"No positive position for {symbol}. Cannot place sell order (position={fetched_qty})")
+                order.totalQuantity = round(fetched_qty, 4)
+        else:
+            # For BUY: use cashQty instead of totalQuantity
+            order.cashQty = 500
 
         if price is not None and order_type == "LMT":
             order.lmtPrice = price
