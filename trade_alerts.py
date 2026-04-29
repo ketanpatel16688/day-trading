@@ -157,9 +157,28 @@ def webhook():  # type: ignore[misc]
                     else:
                         order_id = _manager.close_position(ticker, tif=tif)
 
-                    qty_closed = abs(float(pos.get("position", 0)))
+                    entry_price = None
+                    exit_price = None
+                    qty_closed = 0.0
+                    try:
+                        position = pos.get("position") or 0
+                        qty_closed = abs(float(str(position)))
+                    except (ValueError, TypeError):
+                        pass
+                    try:
+                        avg_cost = pos.get("avgCost")
+                        if avg_cost is not None:
+                            entry_price = float(avg_cost)
+                    except (ValueError, TypeError):
+                        pass
+                    try:
+                        market_price = pos.get("marketPrice")
+                        if market_price is not None:
+                            exit_price = float(market_price)
+                    except (ValueError, TypeError):
+                        pass
                     logger.info("Submitted close (sell) order %s for %s tif=%s", order_id, ticker, tif)
-                    _journal.record_close(ticker, qty_closed, order_id)
+                    _journal.record_close(ticker, qty_closed, order_id, entry_price=entry_price, exit_price=exit_price)
                     return {"status": "ok", "action": "closed_position", "order_id": order_id}, 200
                 except Exception as exc:
                     logger.error("Failed to close position for %s: %s", ticker, str(exc))
@@ -219,7 +238,7 @@ def webhook():  # type: ignore[misc]
                     )
                     order_id = order_ids["parent"]
                 logger.info("Placed BUY bracket order %s for %s qty=%s sl=%s tif=%s", order_id, ticker, qty, sl_price, tif)
-                _journal.record_trade(ticker, "BUY", float(qty), order_id)
+                _journal.record_trade(ticker, "BUY", float(qty), order_id, order_type="webalert")
                 return {"status": "ok", "action": "placed_buy", "order_id": order_id}, 200
             except Exception as exc:
                 logger.error("Failed to place BUY order for %s: %s", ticker, str(exc))
