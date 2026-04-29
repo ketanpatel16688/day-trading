@@ -325,7 +325,7 @@ class IBKRManager:
         order = Order()
         order.action = action_upper
         order.orderType = order_type
-        order.totalQuantity = round(quantity, 4)
+        order.totalQuantity = float(f"{quantity:.3f}")
         order.tif = tif
 
         if price is not None and order_type == "LMT":
@@ -378,10 +378,10 @@ class IBKRManager:
         parent = Order()
         parent.orderType = "LMT" if limit_price is not None else "MKT"
         parent.action = action_upper
-        parent.totalQuantity = round(quantity, 4)
+        parent.totalQuantity = float(f"{quantity:.3f}")
         parent.tif = tif
         if limit_price is not None and parent.orderType == "LMT":
-            parent.lmtPrice = round(limit_price, 4)
+            parent.lmtPrice = round(limit_price, 2)
         parent.transmit = False
 
         # Child: take-profit (limit opposite side)
@@ -390,8 +390,8 @@ class IBKRManager:
         tp = Order()
         tp.action = "SELL" if action_upper == "BUY" else "BUY"
         tp.orderType = "LMT"
-        tp.totalQuantity = round(quantity, 4)
-        tp.lmtPrice = round(take_profit_price, 4)
+        tp.totalQuantity = float(f"{quantity:.3f}")
+        tp.lmtPrice = round(take_profit_price, 2)
         tp.tif = tif
         tp.parentId = parent_id
         tp.transmit = False
@@ -402,8 +402,8 @@ class IBKRManager:
         sl = Order()
         sl.action = "SELL" if action_upper == "BUY" else "BUY"
         sl.orderType = "STP"
-        sl.auxPrice = round(stop_price, 4)
-        sl.totalQuantity = round(quantity, 4)
+        sl.auxPrice = round(stop_price, 2)
+        sl.totalQuantity = float(f"{quantity:.3f}")
         sl.tif = tif
         sl.parentId = parent_id
         sl.transmit = True
@@ -542,7 +542,7 @@ class IBKRManager:
         order = Order()
         order.action = action_upper
         order.orderType = order_type
-        order.totalQuantity = round(quantity, 4)
+        order.totalQuantity = quantity
         order.tif = tif
         order.eTradeOnly = False
         order.firmQuoteOnly = False
@@ -601,7 +601,7 @@ class IBKRManager:
         parent = Order()
         parent.orderType = "LMT" if limit_price is not None else "MKT"
         parent.action = action_upper
-        parent.totalQuantity = round(quantity, 4)
+        parent.totalQuantity = quantity
         parent.tif = tif
         if limit_price is not None and parent.orderType == "LMT":
             parent.lmtPrice = limit_price
@@ -612,8 +612,8 @@ class IBKRManager:
         tp = Order()
         tp.action = "SELL" if action_upper == "BUY" else "BUY"
         tp.orderType = "LMT"
-        tp.totalQuantity = round(quantity, 4)
-        tp.lmtPrice = round(take_profit_price, 4)
+        tp.totalQuantity = quantity
+        tp.lmtPrice = round(take_profit_price, 2)
         tp.tif = tif
         tp.parentId = parent_id
         tp.transmit = False
@@ -623,8 +623,8 @@ class IBKRManager:
         sl = Order()
         sl.action = "SELL" if action_upper == "BUY" else "BUY"
         sl.orderType = "STP"
-        sl.auxPrice = round(stop_price, 4)
-        sl.totalQuantity = round(quantity, 4)
+        sl.auxPrice = round(stop_price, 2)
+        sl.totalQuantity = quantity
         sl.tif = tif
         sl.parentId = parent_id
         sl.transmit = True
@@ -682,15 +682,15 @@ class IBKRManager:
         if action_upper == "SELL":
             # For SELL: use provided quantity or fetch from position
             if quantity > 1:
-                order.totalQuantity = round(quantity, 4)
+                order.totalQuantity = float(f"{quantity:.3f}")
             else:
                 pos = self.get_ticker_position(symbol)
                 if pos is None:
                     raise ValueError(f"No open position found for {symbol} to sell")
                 fetched_qty = float(pos.get("position", 0))
-                if fetched_qty <= 0:
+                if fetched_qty <= 0.001:
                     raise ValueError(f"No positive position for {symbol}. Cannot place sell order (position={fetched_qty})")
-                order.totalQuantity = round(fetched_qty, 4)
+                order.totalQuantity = float(f"{fetched_qty:.3f}")
         else:
             # For BUY: use cashQty instead of totalQuantity
             order.cashQty = 500
@@ -752,7 +752,7 @@ class IBKRManager:
         tp.orderType = "LMT"
         #tp.totalQuantity = round(quantity,4)
         tp.cashQty = 500  # For crypto, use cashQty instead of totalQuantity
-        tp.lmtPrice = round(take_profit_price, 4)
+        tp.lmtPrice = round(take_profit_price, 2)
         tp.tif = tif
         tp.parentId = parent_id
         tp.transmit = False
@@ -763,8 +763,8 @@ class IBKRManager:
         sl = Order()
         sl.action = "SELL" if action.lower() == "buy" else "BUY"
         sl.orderType = "STP"
-        sl.auxPrice = round(stop_price, 4)
-        sl.totalQuantity = round(quantity,4)
+        sl.auxPrice = round(stop_price, 2)
+        sl.totalQuantity = float(f"{quantity:.3f}")
         sl.tif = tif
         sl.parentId = parent_id
         sl.transmit = True
@@ -851,7 +851,7 @@ class IBKRManager:
             raise ValueError(f"Position for {symbol} is zero")
 
         # Determine quantity to close
-        qty_to_close = abs(open_qty) if quantity is None else float(quantity)
+        qty_to_close = abs(open_qty) if quantity is None else float(quantity,2)
 
         # Action is opposite of the current position sign
         action = "SELL" if open_qty > 0 else "BUY"

@@ -20,6 +20,8 @@ _manager = None
 _journal = None
 _risk_manager = None
 _lock = threading.Lock()
+_health_check_running = False
+_config = None
 
 
 def _init_manager(config):
@@ -84,6 +86,43 @@ def _cancel_orders_for(symbol: str, logger: logging.Logger, is_crypto: bool = Fa
             logger.info("Cancelled order %s for %s", oid, actual_symbol)
         except Exception as exc:
             logger.error("Failed to cancel order %s for %s: %s", oid, actual_symbol, exc)
+
+
+def _health_check_loop():
+    logger = logging.getLogger("health_check")
+    while _health_check_running:
+        try:
+            if _manager is None or _config is None:
+                time.sleep(5)
+                continue
+
+            if not _manager.client.isConnected():
+                logger.warning("IBKR connection lost, attempting to reconnect...")
+                try:
+                    _manager.disconnect()
+                except Exception:
+                    pass
+
+                try:
+                    ibkr_cfg = _config.get("ibkr")
+                    if ibkr_cfg is None:
+                        ibkr_cfg = {}
+                    host = ibkr_cfg.get("host") or "127.0.0.1"
+                    port = ibkr_cfg.get("port") or 7497
+                    client_id = ibkr_cfg.get("client_id") or 1001
+                    _manager.client.connect(
+                        host=host,
+                        port=port,
+                        clientId=client_id
+                    )
+                    logger.info("IBKR reconnection successful")
+                except Exception as exc:
+                    logger.error("Failed to reconnect to IBKR: %s", str(exc))
+
+            time.sleep(5)
+        except Exception as exc:
+            logger.error("Health check error: %s", str(exc))
+            time.sleep(5)
 
 
 @app.route("/webhook", methods=["POST"])
@@ -190,10 +229,10 @@ def webhook():  # type: ignore[misc]
 
         # BUY handling
         if action == "BUY":
-            pos = _get_position_for(ticker, is_crypto, crypto_info)
-            if pos and float(pos.get("position", 0)) != 0:
-                logger.info("BUY alert for %s ignored: position already open", ticker)
-                return {"status": "ignored", "reason": "position_exists"}, 200
+#            pos = _get_position_for(ticker, is_crypto, crypto_info)
+#            if pos and float(pos.get("position", 0)) != 0:
+#                logger.info("BUY alert for %s ignored: position already open", ticker)
+#                return {"status": "ignored", "reason": "position_exists"}, 200
 
             # If there are pending orders for this ticker, don't duplicate
             pending = _get_open_orders_for(ticker, is_crypto, crypto_info)
@@ -246,18 +285,30 @@ def webhook():  # type: ignore[misc]
 
 
 def run_server(host: str = "0.0.0.0", port: int = 5000):
-    global _manager, _journal, _risk_manager
+    global _manager, _journal, _risk_manager, _health_check_running, _config
+    logger = logging.getLogger("execution")
+
     # load config and logging
     cfg = load_config(Path("config.json"))
+    _config = cfg
     configure_logging(cfg)
     _manager = _init_manager(cfg)
     _journal = TradingJournal(cfg.get("logging", {}).get("journal_log", "logs/journal.log"))
     _risk_manager = RiskManager(_manager, cfg)
 
+    # Start health check thread
+    _health_check_running = True
+    health_thread = threading.Thread(target=_health_check_loop, daemon=True)
+    health_thread.start()
+    logger.info("IBKR connection health check thread started (checks every 5 seconds)")
+
     try:
         # Flask's built-in server in threaded mode is acceptable for this webhook receiver
         app.run(host=host, port=port, threaded=True)
     finally:
+        _health_check_running = False
+        logger.info("Stopping health check thread...")
+        health_thread.join(timeout=2)
         try:
             _manager.disconnect()
         except Exception:
