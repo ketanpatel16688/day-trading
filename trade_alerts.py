@@ -1,3 +1,5 @@
+import math
+
 from flask import Flask, request
 import json
 import datetime
@@ -119,10 +121,10 @@ def _health_check_loop():
                 except Exception as exc:
                     logger.error("Failed to reconnect to IBKR: %s", str(exc))
 
-            time.sleep(5)
+            time.sleep(10)
         except Exception as exc:
             logger.error("Health check error: %s", str(exc))
-            time.sleep(5)
+            time.sleep(10)
 
 
 @app.route("/webhook", methods=["POST"])
@@ -258,7 +260,7 @@ def webhook():  # type: ignore[misc]
                         exchange=crypto_info["exchange"],
                         currency=crypto_info["currency"],
                         action="BUY",
-                        quantity=float(round(qty, 4)),
+                        quantity=qty,
                         stop_price=sl_price,
                         take_profit_price=tp_price,
                         tif="IOC"
@@ -270,7 +272,7 @@ def webhook():  # type: ignore[misc]
                     order_ids = _manager.place_bracket_order(
                         symbol=ticker,
                         action="BUY",
-                        quantity=float(round(qty, 4)),
+                        quantity=qty,
                         stop_price=sl_price,
                         take_profit_price=tp_price,
                         tif=tif

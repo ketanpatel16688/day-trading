@@ -1,4 +1,5 @@
 import logging
+import math
 import threading
 import time
 from pathlib import Path
@@ -8,6 +9,7 @@ from ibapi.client import EClient
 from ibapi.contract import Contract
 from ibapi.order import Order
 from ibapi.wrapper import EWrapper
+from ib_insync import IB, Stock, MarketOrder, LimitOrder, StopOrder
 
 
 class IBKRClient(EWrapper, EClient):
@@ -157,6 +159,7 @@ class IBKRManager:
         contract.secType = sec_type
         contract.currency = currency
         contract.exchange = exchange
+        
         return contract
 
     def fetch_historical_data(
@@ -325,7 +328,7 @@ class IBKRManager:
         order = Order()
         order.action = action_upper
         order.orderType = order_type
-        order.totalQuantity = float(f"{quantity:.3f}")
+        order.totalQuantity = math.floor(quantity* 100) / 100
         order.tif = tif
 
         if price is not None and order_type == "LMT":
@@ -378,7 +381,7 @@ class IBKRManager:
         parent = Order()
         parent.orderType = "LMT" if limit_price is not None else "MKT"
         parent.action = action_upper
-        parent.totalQuantity = float(f"{quantity:.3f}")
+        parent.totalQuantity = math.floor(quantity* 100) / 100
         parent.tif = tif
         if limit_price is not None and parent.orderType == "LMT":
             parent.lmtPrice = round(limit_price, 2)
@@ -390,7 +393,7 @@ class IBKRManager:
         tp = Order()
         tp.action = "SELL" if action_upper == "BUY" else "BUY"
         tp.orderType = "LMT"
-        tp.totalQuantity = float(f"{quantity:.3f}")
+        tp.totalQuantity = math.floor(quantity* 100) / 100
         tp.lmtPrice = round(take_profit_price, 2)
         tp.tif = tif
         tp.parentId = parent_id
@@ -403,7 +406,7 @@ class IBKRManager:
         sl.action = "SELL" if action_upper == "BUY" else "BUY"
         sl.orderType = "STP"
         sl.auxPrice = round(stop_price, 2)
-        sl.totalQuantity = float(f"{quantity:.3f}")
+        sl.totalQuantity = math.floor(quantity* 100) / 100
         sl.tif = tif
         sl.parentId = parent_id
         sl.transmit = True
@@ -681,16 +684,16 @@ class IBKRManager:
 
         if action_upper == "SELL":
             # For SELL: use provided quantity or fetch from position
-            if quantity > 1:
-                order.totalQuantity = float(f"{quantity:.3f}")
-            else:
+            
+            order.totalQuantity = math.floor(quantity* 100) / 100
+            if quantity < 0.01:
                 pos = self.get_ticker_position(symbol)
                 if pos is None:
                     raise ValueError(f"No open position found for {symbol} to sell")
                 fetched_qty = float(pos.get("position", 0))
                 if fetched_qty <= 0.001:
                     raise ValueError(f"No positive position for {symbol}. Cannot place sell order (position={fetched_qty})")
-                order.totalQuantity = float(f"{fetched_qty:.3f}")
+                order.totalQuantity = math.floor(fetched_qty* 100) / 100 #float(f"{fetched_qty:.3f}")
         else:
             # For BUY: use cashQty instead of totalQuantity
             order.cashQty = 500
@@ -764,7 +767,7 @@ class IBKRManager:
         sl.action = "SELL" if action.lower() == "buy" else "BUY"
         sl.orderType = "STP"
         sl.auxPrice = round(stop_price, 2)
-        sl.totalQuantity = float(f"{quantity:.3f}")
+        sl.totalQuantity = math.floor(quantity* 100) / 100 #float(f"{quantity:.3f}")
         sl.tif = tif
         sl.parentId = parent_id
         sl.transmit = True
