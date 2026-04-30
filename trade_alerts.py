@@ -98,7 +98,7 @@ def _health_check_loop():
                 time.sleep(5)
                 continue
 
-            if not _manager.client.isConnected():
+            if not _manager.ib.isConnected():
                 logger.warning("IBKR connection lost, attempting to reconnect...")
                 try:
                     _manager.disconnect()
@@ -106,17 +106,7 @@ def _health_check_loop():
                     pass
 
                 try:
-                    ibkr_cfg = _config.get("ibkr")
-                    if ibkr_cfg is None:
-                        ibkr_cfg = {}
-                    host = ibkr_cfg.get("host") or "127.0.0.1"
-                    port = ibkr_cfg.get("port") or 7497
-                    client_id = ibkr_cfg.get("client_id") or 1001
-                    _manager.client.connect(
-                        host=host,
-                        port=port,
-                        clientId=client_id
-                    )
+                    _manager.connect()
                     logger.info("IBKR reconnection successful")
                 except Exception as exc:
                     logger.error("Failed to reconnect to IBKR: %s", str(exc))
