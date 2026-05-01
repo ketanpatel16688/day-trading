@@ -72,6 +72,8 @@ class RiskManager:
             if qty is not None and qty > capped_qty:
                 qty = capped_qty
                 self.logger.info(f"Capped crypto qty for {symbol} at {qty} (max $500)")
-        
+        else:
+            qty = int(qty) if qty is not None else None  # For stocks/options, we need whole shares
+            self.logger.info(f"Revised qty for {symbol}: {qty}")
         sl_price = self.calculate_sl(current_price, atr, action,is_crypto)
         return qty, sl_price
