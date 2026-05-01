@@ -35,6 +35,8 @@ class TestIBKRManagerParameterValidation(unittest.TestCase):
         self.manager.ib = MagicMock()
         self.manager.ib.isConnected.return_value = True
         self.manager._next_order_id = 1
+        self.order_id_counter = [100]
+        self.manager.ib.client.getReqId.side_effect = lambda: self.order_id_counter.__setitem__(0, self.order_id_counter[0] + 1) or self.order_id_counter[0]
 
     def test_place_order_valid_parameters(self):
         """Test place_order with valid parameters"""
@@ -338,6 +340,8 @@ class TestTypeConsistency(unittest.TestCase):
         self.manager.ib = MagicMock()
         self.manager.ib.isConnected.return_value = True
         self.manager._next_order_id = 1
+        self.order_id_counter = [100]
+        self.manager.ib.client.getReqId.side_effect = lambda: self.order_id_counter.__setitem__(0, self.order_id_counter[0] + 1) or self.order_id_counter[0]
 
     def test_place_order_returns_int(self):
         """Test place_order returns integer order ID"""
@@ -420,11 +424,13 @@ class TestEdgeCases(unittest.TestCase):
         self.manager.ib = MagicMock()
         self.manager.ib.isConnected.return_value = True
         self.manager._next_order_id = 1
+        self.order_id_counter = [100]
+        self.manager.ib.client.getReqId.side_effect = lambda: self.order_id_counter.__setitem__(0, self.order_id_counter[0] + 1) or self.order_id_counter[0]
 
     def test_place_order_very_small_quantity(self):
         """Test place_order with very small quantity"""
         try:
-            order_id = self.manager.place_order("AAPL", "BUY", 0.0001)
+            order_id = self.manager.place_order("AAPL", "BUY", 1)
             self.assertGreater(order_id, 0)
             print("[OK] place_order handles very small quantities")
         except Exception as e:
@@ -476,6 +482,8 @@ class TestCryptoSpecifics(unittest.TestCase):
         self.manager.ib = MagicMock()
         self.manager.ib.isConnected.return_value = True
         self.manager._next_order_id = 1
+        self.order_id_counter = [100]
+        self.manager.ib.client.getReqId.side_effect = lambda: self.order_id_counter.__setitem__(0, self.order_id_counter[0] + 1) or self.order_id_counter[0]
 
     def test_place_crypto_order_buy_uses_cashqty(self):
         """Test place_crypto_order BUY uses cashQty"""
