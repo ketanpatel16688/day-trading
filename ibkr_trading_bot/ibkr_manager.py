@@ -366,6 +366,7 @@ class IBKRManager:
         order.action = action_upper
         order.orderType = order_type
         order.totalQuantity = math.floor(quantity * 100) / 100
+        order.outsideRth = True
         order.tif = tif
         if price is not None and order_type == "LMT":
             order.lmtPrice = price
@@ -414,6 +415,7 @@ class IBKRManager:
         parent.orderType = "LMT" if limit_price is not None else "MKT"
         parent.action = action_upper
         parent.totalQuantity = qty
+        parent.outsideRth = True
         parent.tif = tif
         if limit_price is not None and parent.orderType == "LMT":
             parent.lmtPrice = round(limit_price, 2)
@@ -428,6 +430,7 @@ class IBKRManager:
         tp.lmtPrice = round(take_profit_price, 2)
         tp.tif = tif
         tp.parentId = parent_id
+        tp.outsideRth = True
         tp.transmit = False
 
         sl_id = self._allot_order_id()
@@ -439,6 +442,7 @@ class IBKRManager:
         sl.totalQuantity = qty
         sl.tif = tif
         sl.parentId = parent_id
+        sl.outsideRth = True
         sl.transmit = True
 
         self.logger.debug("Placing bracket order parent=%s tp=%s sl=%s for %s", parent_id, tp_id, sl_id, symbol)
@@ -624,6 +628,7 @@ class IBKRManager:
         order.orderId = order_id
         order.action = action_upper
         order.orderType = order_type
+        order.outsideRth = True
         order.tif = tif
 
         self.logger.debug("Placing crypto order with action %s and quantity %s", action_upper, quantity)
@@ -684,6 +689,7 @@ class IBKRManager:
         parent.orderType = "LMT" if limit_price is not None else "MKT"
         parent.action = action.upper()
         parent.cashQty = 500
+        parent.outsideRth = True
         parent.tif = "IOC"
         if limit_price is not None and parent.orderType == "LMT":
             parent.lmtPrice = round(limit_price, 2)

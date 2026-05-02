@@ -1,14 +1,10 @@
 {
   "ibkr": {
     "host": "127.0.0.1",
-    "port": 4002,
+    "port": 7497,
     "client_id": 1001,
     "account_id": "DUO084288"
   },
-  "supported_tickers": [
-    "AAPL",
-    "MSFT"
-  ],
   "crypto_mappings": {
     "SOLUSD": {
       "symbol": "SOL",
