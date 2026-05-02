@@ -2,7 +2,8 @@
   "ibkr": {
     "host": "127.0.0.1",
     "port": 4002,
-    "client_id": 1001
+    "client_id": 1001,
+    "account_id": "DUO084288"
   },
   "supported_tickers": [
     "AAPL",
@@ -43,7 +44,7 @@
     "initial_capital": 100000
   },
   "logging": {
-    "log_level": "DEBUG",
+    "log_level": "INFO",
     "error_log": "logs/error.log",
     "trade_log": "logs/trade.log",
     "execution_log": "logs/execution.log",

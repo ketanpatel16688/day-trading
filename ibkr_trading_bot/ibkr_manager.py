@@ -9,10 +9,11 @@ from ib_async import IB, Contract, Order, Trade
 
 
 class IBKRManager:
-    def __init__(self, host: str = "127.0.0.1", port: int = 7497, client_id: int = 1001):
+    def __init__(self, host: str = "127.0.0.1", port: int = 7497, client_id: int = 1001, account_id: str = ""):
         self.host = host
         self.port = port
         self.client_id = client_id
+        self.account_id = account_id
         self.logger = logging.getLogger("execution")
         self.ib = IB()
         self._next_order_id: int = 1
@@ -36,14 +37,14 @@ class IBKRManager:
         return future.result(timeout=30)
 
     def connect(self) -> None:
-        self.logger.debug("Connecting to IBKR at %s:%s client=%s", self.host, self.port, self.client_id)
+        self.logger.debug("Connecting to IBKR at %s:%s client=%s account=%s", self.host, self.port, self.client_id, self.account_id)
 
         def _connect():
             self._ib_thread_id = threading.get_ident()
-            # ib.connect() waits for the gateway's nextValidId response before
-            # returning, which seeds client._reqIdSeq. getReqId() then hands out
-            # correct IDs with no additional reqIds() call needed.
-            self.ib.connect(self.host, self.port, clientId=self.client_id)
+            # Passing account triggers reqAccountUpdates() during startup so that
+            # accountValues() / accountSummary() cache is populated immediately.
+           # self.ib.setConnectOptions('DownloadOpenOrders=0') # we call reqAllOpenOrders() manually in get_open_orders() instead
+            self.ib.connect(self.host, self.port, clientId=self.client_id, account=self.account_id)
 
         self._executor.submit(_connect).result(timeout=30)
 
@@ -266,25 +267,25 @@ class IBKRManager:
             self.logger.error("Failed to fetch open orders: %s", e)
             raise
 
-    def get_account_summary(self, tags: List[str] = ["SettledCash"]) -> Dict[str, str]:
+    def get_account_summary(self, tags: List[str] = ["SettledCash"], currency: str = "USD") -> Dict[str, str]:
         if not self.ib.isConnected():
             raise RuntimeError("IBKR client is not connected")
 
         def _fetch() -> Dict[str, str]:
+            # accountValues() reads from the cache populated by reqAccountUpdates() which
+            # connectAsync() already awaited at connect time (requires account_id to be set).
+            # SettledCash is only in this stream, not in reqAccountSummary.
             values = self.ib.accountValues()
             if not values:
-                self.ib.sleep(2)
-                values = self.ib.accountValues()
-            if not values:
                 raise TimeoutError("Timed out fetching account summary")
-            return {v.tag: v.value for v in values if v.tag in tags}
+            return {v.tag: v.value for v in values if v.tag in tags and v.currency == currency}
 
         return self._ib(_fetch)
 
     def get_settled_cash(self) -> Optional[float]:
         try:
-            summary = self.get_account_summary(["SettledCash"])
-            return float(summary.get("SettledCash", 0))
+            summary = self.get_account_summary(["AvailableFunds"])
+            return float(summary.get("AvailableFunds", 0))
         except Exception as e:
             self.logger.warning("Failed to fetch settled cash: %s", e)
             return None

@@ -1,9 +1,10 @@
 import argparse
 import logging
 from pathlib import Path
+from time import time
 from typing import Dict, List, Optional
 import re
-
+import time
 # Colored printing helpers — try to use colorama when available for Windows compatibility
 try:
     from colorama import init as _colorama_init
@@ -92,7 +93,7 @@ def main() -> None:
     parser.add_argument("--cancel-order", help="Cancel a pending order by ORDER_ID", type=int)
     parser.add_argument("--close-position", help="Close position for SYMBOL (closes full size by default)", metavar="SYMBOL")
     parser.add_argument("--close-qty", help="Quantity to close (optional)", type=float)
-    
+    parser.add_argument("--settled-cash", help="Fetch IBKR settled cash balance", action="store_true")
     args = parser.parse_args()
 
     config_path = Path("config.json")
@@ -112,6 +113,7 @@ def main() -> None:
         host=ibkr_config.get("host", "127.0.0.1"),
         port=ibkr_config.get("port", 7497),
         client_id=ibkr_config.get("client_id", 1001),
+        account_id=ibkr_config.get("account_id", ""),
     )
     
     # Determine time-in-force based on --day-order flag
@@ -119,6 +121,7 @@ def main() -> None:
     
     try:
         manager.connect()
+        time.sleep(1)  # brief pause to ensure connection is fully established
 
         # Debug-only commands: if any debug arg supplied, run it and exit
         if any([
@@ -130,8 +133,19 @@ def main() -> None:
             args.option,
             args.crypto,
             args.cancel_order is not None,
-            args.close_position
+            args.close_position,
+            args.settled_cash
         ]):
+            if args.settled_cash:
+                try:
+                    settled_cash = manager.get_settled_cash()
+                    execution_logger.info("IBKR settled cash: %s", settled_cash)
+                    print_yellow(f"IBKR settled cash: {settled_cash}")
+                except Exception as exc:
+                    error_logger.error("Failed to fetch IBKR settled cash: %s", exc)
+                    print_red(f"Failed to fetch IBKR settled cash: {exc}")
+                return
+            
             if args.debug_close:
                 symbol = args.debug_close
                 try:

@@ -6,7 +6,11 @@
       "Bash(python -m unittest test_function.TestIBKRManagerParameterValidation.test_place_crypto_order_sell_no_position -v)",
       "Bash(python test_threading_fix.py)",
       "Bash(timeout 20 python test_event_loop_fix.py)",
-      "Bash(python test_event_loop_fix.py)"
+      "Bash(python test_event_loop_fix.py)",
+      "PowerShell(Get-ChildItem \"c:\\\\Users\\\\ketan\\\\Desktop\\\\Ketan's personal\\\\2. Finanacial\\\\Algo Trading\\\\Day Trading\" | ForEach-Object {$_.Name})",
+      "PowerShell(python -m pip show ib-insync)",
+      "PowerShell(python -m pip list)",
+      "PowerShell(python -c \"import ib_async; print\\(ib_async.__file__\\)\")"
     ]
   }
 }

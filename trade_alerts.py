@@ -32,6 +32,7 @@ def _init_manager(config):
         host=manager_cfg.get("host", "127.0.0.1"),
         port=manager_cfg.get("port", 7497),
         client_id=manager_cfg.get("client_id", 1001),
+        account_id=manager_cfg.get("account_id", ""),
     )
     mgr.connect()
     return mgr
