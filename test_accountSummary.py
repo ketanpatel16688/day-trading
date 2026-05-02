@@ -6,7 +6,7 @@ def get_settled_cash():
         # Use ib.connect() directly. 
         # In Python 3.14, this is safer as it manages the internal event loop/tasks for you.
         print("Connecting to IB Gateway...")
-        ib.connect('127.0.0.1', 4002, clientId=1001)
+        ib.connect('127.0.0.1', 7497, clientId=1001)
         print("Connected!")
 
         # Fetch all account values (the "Account" tab in TWS)

@@ -9,11 +9,10 @@ from ib_async import IB, Contract, Order, Trade
 
 
 class IBKRManager:
-    def __init__(self, host: str = "127.0.0.1", port: int = 7497, client_id: int = 1001, account_id: str = ""):
+    def __init__(self, host: str = "127.0.0.1", port: int = 7497, client_id: int = 1001):
         self.host = host
         self.port = port
         self.client_id = client_id
-        self.account_id = account_id
         self.logger = logging.getLogger("execution")
         self.ib = IB()
         self._next_order_id: int = 1
@@ -22,6 +21,8 @@ class IBKRManager:
         # that owns the event loop ib_async uses.
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ib_worker")
         self._ib_thread_id: Optional[int] = None
+        logging.getLogger('ib_async').setLevel(logging.WARNING)
+
 
     def _ib(self, fn: Callable):
         """
@@ -37,15 +38,14 @@ class IBKRManager:
         return future.result(timeout=30)
 
     def connect(self) -> None:
-        self.logger.debug("Connecting to IBKR at %s:%s client=%s account=%s", self.host, self.port, self.client_id, self.account_id)
+        self.logger.debug("Connecting to IBKR at %s:%s client=%s account=%s", self.host, self.port, self.client_id)
 
         def _connect():
             self._ib_thread_id = threading.get_ident()
             # Passing account triggers reqAccountUpdates() during startup so that
             # accountValues() / accountSummary() cache is populated immediately.
            # self.ib.setConnectOptions('DownloadOpenOrders=0') # we call reqAllOpenOrders() manually in get_open_orders() instead
-            self.ib.connect(self.host, self.port, clientId=self.client_id, account=self.account_id)
-
+            self.ib.connect(self.host, self.port, clientId=self.client_id)
         self._executor.submit(_connect).result(timeout=30)
 
     def disconnect(self) -> None:

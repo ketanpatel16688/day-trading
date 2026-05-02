@@ -113,7 +113,7 @@ def main() -> None:
         host=ibkr_config.get("host", "127.0.0.1"),
         port=ibkr_config.get("port", 7497),
         client_id=ibkr_config.get("client_id", 1001),
-        account_id=ibkr_config.get("account_id", ""),
+   #     account_id=ibkr_config.get("account_id", ""),
     )
     
     # Determine time-in-force based on --day-order flag
