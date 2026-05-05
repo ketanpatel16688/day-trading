@@ -5,6 +5,11 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Dict, List, Optional
 
+try:
+    asyncio.get_running_loop()
+except RuntimeError:
+    asyncio.set_event_loop(asyncio.new_event_loop())
+
 from ib_async import IB, Contract, Order, Trade
 
 
