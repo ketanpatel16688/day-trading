@@ -9,7 +9,7 @@ from ibapi.client import EClient
 from ibapi.contract import Contract
 from ibapi.order import Order
 from ibapi.wrapper import EWrapper
-from ib_insync import IB, Stock, MarketOrder, LimitOrder, StopOrder
+#from ib_insync import IB, Stock, MarketOrder, LimitOrder, StopOrder
 
 
 class IBKRClient(EWrapper, EClient):
@@ -446,6 +446,73 @@ class IBKRManager:
             return float(summary.get("SettledCash", 0))
         except Exception as e:
             self.logger.warning(f"Failed to fetch settled cash: {e}")
+            return None
+
+    def get_cash_balance(self) -> Optional[float]:
+        """Get current available cash balance from IBKR account."""
+        try:
+            summary = self.get_account_summary(["CashBalance"])
+            return float(summary.get("CashBalance", 0))
+        except Exception as e:
+            self.logger.warning(f"Failed to fetch cash balance: {e}")
+            return None
+
+    def get_total_portfolio_balance(self) -> Optional[float]:
+        """Get total portfolio value (includes stocks, options, crypto, etc.)."""
+        try:
+            summary = self.get_account_summary(["TotalCashBalance"])
+            return float(summary.get("TotalCashBalance", 0))
+        except Exception as e:
+            self.logger.warning(f"Failed to fetch total portfolio balance: {e}")
+            return None
+
+    def get_total_daily_gain(self) -> Optional[float]:
+        """Get total daily profit/loss."""
+        try:
+            summary = self.get_account_summary(["DayTradesBought"])
+            daily_pl = float(summary.get("DayTradesBought", 0))
+            return daily_pl
+        except Exception as e:
+            self.logger.warning(f"Failed to fetch daily gain: {e}")
+            return None
+
+    def get_total_weekly_gain(self) -> Optional[float]:
+        """Get unrealized P&L for the week (approximation using UnrealizedPnL)."""
+        try:
+            summary = self.get_account_summary(["UnrealizedPnL"])
+            return float(summary.get("UnrealizedPnL", 0))
+        except Exception as e:
+            self.logger.warning(f"Failed to fetch weekly gain: {e}")
+            return None
+
+    def get_total_monthly_gain(self) -> Optional[float]:
+        """Get realized P&L for the month."""
+        try:
+            summary = self.get_account_summary(["RealizedPnL"])
+            return float(summary.get("RealizedPnL", 0))
+        except Exception as e:
+            self.logger.warning(f"Failed to fetch monthly gain: {e}")
+            return None
+
+    def get_ytd_gain(self) -> Optional[float]:
+        """Get year-to-date realized P&L."""
+        try:
+            summary = self.get_account_summary(["RealizedPnL"])
+            return float(summary.get("RealizedPnL", 0))
+        except Exception as e:
+            self.logger.warning(f"Failed to fetch YTD gain: {e}")
+            return None
+
+    def get_all_time_gain(self) -> Optional[float]:
+        """Get all-time P&L (realized + unrealized)."""
+        try:
+            tags = ["RealizedPnL", "UnrealizedPnL"]
+            summary = self.get_account_summary(tags)
+            realized = float(summary.get("RealizedPnL", 0))
+            unrealized = float(summary.get("UnrealizedPnL", 0))
+            return realized + unrealized
+        except Exception as e:
+            self.logger.warning(f"Failed to fetch all-time gain: {e}")
             return None
 
     def get_stock_price(self, symbol: str) -> Optional[float]:

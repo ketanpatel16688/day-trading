@@ -92,7 +92,16 @@ def main() -> None:
     parser.add_argument("--cancel-order", help="Cancel a pending order by ORDER_ID", type=int)
     parser.add_argument("--close-position", help="Close position for SYMBOL (closes full size by default)", metavar="SYMBOL")
     parser.add_argument("--close-qty", help="Quantity to close (optional)", type=float)
-    
+
+    parser.add_argument("--account-summary", help="Display account summary (cash balance, portfolio value, gains)", action="store_true")
+    parser.add_argument("--cash-balance", help="Display available cash balance", action="store_true")
+    parser.add_argument("--portfolio-value", help="Display total portfolio value", action="store_true")
+    parser.add_argument("--daily-gain", help="Display total daily gain/loss", action="store_true")
+    parser.add_argument("--weekly-gain", help="Display total weekly gain/loss", action="store_true")
+    parser.add_argument("--monthly-gain", help="Display total monthly gain/loss", action="store_true")
+    parser.add_argument("--ytd-gain", help="Display year-to-date gain/loss", action="store_true")
+    parser.add_argument("--all-time-gain", help="Display all-time gain/loss", action="store_true")
+
     args = parser.parse_args()
 
     config_path = Path("config.json")
@@ -130,7 +139,15 @@ def main() -> None:
             args.option,
             args.crypto,
             args.cancel_order is not None,
-            args.close_position
+            args.close_position,
+            args.account_summary,
+            args.cash_balance,
+            args.portfolio_value,
+            args.daily_gain,
+            args.weekly_gain,
+            args.monthly_gain,
+            args.ytd_gain,
+            args.all_time_gain
         ]):
             if args.debug_close:
                 symbol = args.debug_close
@@ -208,6 +225,102 @@ def main() -> None:
                     error_logger.error("Failed to close position for %s: %s", sym, exc)
                     print_red(f"Failed to close position for {sym}: {exc}")
                 return
+
+            if args.account_summary:
+                try:
+                    cash = manager.get_cash_balance()
+                    portfolio = manager.get_total_portfolio_balance()
+                    daily = manager.get_total_daily_gain()
+                    weekly = manager.get_total_weekly_gain()
+                    monthly = manager.get_total_monthly_gain()
+                    ytd = manager.get_ytd_gain()
+                    all_time = manager.get_all_time_gain()
+
+                    execution_logger.info("Account Summary")
+                    print_yellow("=" * 50)
+                    print_yellow("ACCOUNT SUMMARY")
+                    print_yellow("=" * 50)
+                    print_yellow(f"Cash Balance:           ${cash:,.2f}" if cash is not None else "Cash Balance:           N/A")
+                    print_yellow(f"Total Portfolio Value:  ${portfolio:,.2f}" if portfolio is not None else "Total Portfolio Value:  N/A")
+                    print_yellow(f"Daily Gain/Loss:        ${daily:,.2f}" if daily is not None else "Daily Gain/Loss:        N/A")
+                    print_yellow(f"Weekly Gain/Loss:       ${weekly:,.2f}" if weekly is not None else "Weekly Gain/Loss:       N/A")
+                    print_yellow(f"Monthly Gain/Loss:      ${monthly:,.2f}" if monthly is not None else "Monthly Gain/Loss:      N/A")
+                    print_yellow(f"YTD Gain/Loss:          ${ytd:,.2f}" if ytd is not None else "YTD Gain/Loss:          N/A")
+                    print_yellow(f"All-Time Gain/Loss:     ${all_time:,.2f}" if all_time is not None else "All-Time Gain/Loss:     N/A")
+                    print_yellow("=" * 50)
+                except Exception as exc:
+                    error_logger.error("Failed to fetch account summary: %s", exc)
+                    print_red(f"Failed to fetch account summary: {exc}")
+                return
+
+            if args.cash_balance:
+                try:
+                    cash = manager.get_cash_balance()
+                    execution_logger.info("Cash Balance: %s", cash)
+                    print_yellow(f"Available Cash Balance: ${cash:,.2f}" if cash is not None else "Available Cash Balance: N/A")
+                except Exception as exc:
+                    error_logger.error("Failed to fetch cash balance: %s", exc)
+                    print_red(f"Failed to fetch cash balance: {exc}")
+                return
+
+            if args.portfolio_value:
+                try:
+                    portfolio = manager.get_total_portfolio_balance()
+                    execution_logger.info("Total Portfolio Value: %s", portfolio)
+                    print_yellow(f"Total Portfolio Value: ${portfolio:,.2f}" if portfolio is not None else "Total Portfolio Value: N/A")
+                except Exception as exc:
+                    error_logger.error("Failed to fetch portfolio value: %s", exc)
+                    print_red(f"Failed to fetch portfolio value: {exc}")
+                return
+
+            if args.daily_gain:
+                try:
+                    daily = manager.get_total_daily_gain()
+                    execution_logger.info("Daily Gain/Loss: %s", daily)
+                    print_yellow(f"Daily Gain/Loss: ${daily:,.2f}" if daily is not None else "Daily Gain/Loss: N/A")
+                except Exception as exc:
+                    error_logger.error("Failed to fetch daily gain: %s", exc)
+                    print_red(f"Failed to fetch daily gain: {exc}")
+                return
+
+            if args.weekly_gain:
+                try:
+                    weekly = manager.get_total_weekly_gain()
+                    execution_logger.info("Weekly Gain/Loss: %s", weekly)
+                    print_yellow(f"Weekly Gain/Loss: ${weekly:,.2f}" if weekly is not None else "Weekly Gain/Loss: N/A")
+                except Exception as exc:
+                    error_logger.error("Failed to fetch weekly gain: %s", exc)
+                    print_red(f"Failed to fetch weekly gain: {exc}")
+                return
+
+            if args.monthly_gain:
+                try:
+                    monthly = manager.get_total_monthly_gain()
+                    execution_logger.info("Monthly Gain/Loss: %s", monthly)
+                    print_yellow(f"Monthly Gain/Loss: ${monthly:,.2f}" if monthly is not None else "Monthly Gain/Loss: N/A")
+                except Exception as exc:
+                    error_logger.error("Failed to fetch monthly gain: %s", exc)
+                    print_red(f"Failed to fetch monthly gain: {exc}")
+                return
+
+            if args.ytd_gain:
+                try:
+                    ytd = manager.get_ytd_gain()
+                    execution_logger.info("YTD Gain/Loss: %s", ytd)
+                    print_yellow(f"YTD Gain/Loss: ${ytd:,.2f}" if ytd is not None else "YTD Gain/Loss: N/A")
+                except Exception as exc:
+                    error_logger.error("Failed to fetch YTD gain: %s", exc)
+                    print_red(f"Failed to fetch YTD gain: {exc}")
+                return
+
+            if args.all_time_gain:
+                try:
+                    all_time = manager.get_all_time_gain()
+                    execution_logger.info("All-Time Gain/Loss: %s", all_time)
+                    print_yellow(f"All-Time Gain/Loss: ${all_time:,.2f}" if all_time is not None else "All-Time Gain/Loss: N/A")
+                except Exception as exc:
+                    error_logger.error("Failed to fetch all-time gain: %s", exc)
+                    print_red(f"Failed to fetch all-time gain: {exc}")
                 return
             if args.debug_watchlist:
                 watchlist = [

@@ -499,6 +499,111 @@ class TestCryptoSpecifics(unittest.TestCase):
         print("[OK] place_crypto_bracket_order returns correct structure")
 
 
+class TestAccountStatistics(unittest.TestCase):
+    """Test account statistics and balance APIs"""
+
+    def setUp(self):
+        """Set up test fixtures"""
+        self.manager = IBKRManager()
+        self.manager.client = MagicMock()
+        self.manager.client.isConnected.return_value = True
+        self.manager.client.next_order_id = 1
+
+    def test_get_cash_balance_returns_float(self):
+        """Test get_cash_balance returns float"""
+        with patch.object(self.manager, 'get_account_summary') as mock_summary:
+            mock_summary.return_value = {"CashBalance": "50000.50"}
+            result = self.manager.get_cash_balance()
+            self.assertIsInstance(result, float)
+            self.assertEqual(result, 50000.50)
+            print("[OK] get_cash_balance returns float")
+
+    def test_get_cash_balance_handles_missing_value(self):
+        """Test get_cash_balance handles missing values gracefully"""
+        with patch.object(self.manager, 'get_account_summary') as mock_summary:
+            mock_summary.return_value = {}
+            result = self.manager.get_cash_balance()
+            self.assertEqual(result, 0.0)
+            print("[OK] get_cash_balance handles missing values")
+
+    def test_get_total_portfolio_balance_returns_float(self):
+        """Test get_total_portfolio_balance returns float"""
+        with patch.object(self.manager, 'get_account_summary') as mock_summary:
+            mock_summary.return_value = {"TotalCashBalance": "150000.75"}
+            result = self.manager.get_total_portfolio_balance()
+            self.assertIsInstance(result, float)
+            self.assertEqual(result, 150000.75)
+            print("[OK] get_total_portfolio_balance returns float")
+
+    def test_get_total_daily_gain_returns_float(self):
+        """Test get_total_daily_gain returns float"""
+        with patch.object(self.manager, 'get_account_summary') as mock_summary:
+            mock_summary.return_value = {"DayTradesBought": "1500.25"}
+            result = self.manager.get_total_daily_gain()
+            self.assertIsInstance(result, float)
+            print("[OK] get_total_daily_gain returns float")
+
+    def test_get_total_weekly_gain_returns_float(self):
+        """Test get_total_weekly_gain returns float"""
+        with patch.object(self.manager, 'get_account_summary') as mock_summary:
+            mock_summary.return_value = {"UnrealizedPnL": "5000.00"}
+            result = self.manager.get_total_weekly_gain()
+            self.assertIsInstance(result, float)
+            self.assertEqual(result, 5000.00)
+            print("[OK] get_total_weekly_gain returns float")
+
+    def test_get_total_monthly_gain_returns_float(self):
+        """Test get_total_monthly_gain returns float"""
+        with patch.object(self.manager, 'get_account_summary') as mock_summary:
+            mock_summary.return_value = {"RealizedPnL": "10000.00"}
+            result = self.manager.get_total_monthly_gain()
+            self.assertIsInstance(result, float)
+            self.assertEqual(result, 10000.00)
+            print("[OK] get_total_monthly_gain returns float")
+
+    def test_get_ytd_gain_returns_float(self):
+        """Test get_ytd_gain returns float"""
+        with patch.object(self.manager, 'get_account_summary') as mock_summary:
+            mock_summary.return_value = {"RealizedPnL": "25000.00"}
+            result = self.manager.get_ytd_gain()
+            self.assertIsInstance(result, float)
+            self.assertEqual(result, 25000.00)
+            print("[OK] get_ytd_gain returns float")
+
+    def test_get_all_time_gain_sums_pnl(self):
+        """Test get_all_time_gain sums realized and unrealized P&L"""
+        with patch.object(self.manager, 'get_account_summary') as mock_summary:
+            mock_summary.return_value = {"RealizedPnL": "25000.00", "UnrealizedPnL": "5000.00"}
+            result = self.manager.get_all_time_gain()
+            self.assertIsInstance(result, float)
+            self.assertEqual(result, 30000.00)
+            print("[OK] get_all_time_gain sums realized and unrealized P&L")
+
+    def test_get_all_time_gain_handles_zero_values(self):
+        """Test get_all_time_gain handles zero values"""
+        with patch.object(self.manager, 'get_account_summary') as mock_summary:
+            mock_summary.return_value = {"RealizedPnL": "0", "UnrealizedPnL": "0"}
+            result = self.manager.get_all_time_gain()
+            self.assertEqual(result, 0.0)
+            print("[OK] get_all_time_gain handles zero values")
+
+    def test_get_cash_balance_exception_handling(self):
+        """Test get_cash_balance handles exceptions gracefully"""
+        with patch.object(self.manager, 'get_account_summary') as mock_summary:
+            mock_summary.side_effect = Exception("Connection error")
+            result = self.manager.get_cash_balance()
+            self.assertIsNone(result)
+            print("[OK] get_cash_balance handles exceptions")
+
+    def test_get_all_time_gain_exception_handling(self):
+        """Test get_all_time_gain handles exceptions gracefully"""
+        with patch.object(self.manager, 'get_account_summary') as mock_summary:
+            mock_summary.side_effect = Exception("Connection error")
+            result = self.manager.get_all_time_gain()
+            self.assertIsNone(result)
+            print("[OK] get_all_time_gain handles exceptions")
+
+
 def run_tests_in_random_order():
     """Run all tests in random order"""
     # Create test suite
@@ -515,6 +620,7 @@ def run_tests_in_random_order():
         TestTypeConsistency,
         TestEdgeCases,
         TestCryptoSpecifics,
+        TestAccountStatistics,
     ]
 
     for test_class in test_classes:
