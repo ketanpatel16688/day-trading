@@ -7,6 +7,7 @@ import threading
 import logging
 import time
 from pathlib import Path
+from typing import Optional
 
 from config import load_config, configure_logging
 from ibkr_trading_bot.ibkr_manager import IBKRManager
@@ -78,8 +79,9 @@ def _get_open_orders_for(symbol: str, is_crypto: bool = False, crypto_info: dict
     return [o for o in orders if o.get("symbol") == actual_symbol]
 
 
-def _cancel_orders_for(symbol: str, logger: logging.Logger, is_crypto: bool = False, crypto_info: dict = None):
-    open_orders = _get_open_orders_for(symbol, is_crypto, crypto_info)
+def _cancel_orders_for(symbol: str, logger: logging.Logger, is_crypto: bool = False, crypto_info: dict = None, open_orders: Optional[list] = None):
+    if open_orders is None:
+        open_orders = _get_open_orders_for(symbol, is_crypto, crypto_info)
     actual_symbol = crypto_info["symbol"] if is_crypto and crypto_info else symbol
     for o in open_orders:
         oid = o.get("orderId")
@@ -169,27 +171,28 @@ def webhook():  # type: ignore[misc]
             open_orders = _get_open_orders_for(ticker, is_crypto, crypto_info)
 
             if open_orders:
-                logger.info("SELL alert: cancelling %d pending orders for %s", len(open_orders), ticker)
-                _cancel_orders_for(ticker, logger, is_crypto, crypto_info)
+                logger.info("SELL alert: cancelling pending orders for %s", ticker)
+                _cancel_orders_for(ticker, logger, is_crypto, crypto_info, open_orders=open_orders)
 
             # If a position exists, close it (market)
             pos = _get_position_for(ticker, is_crypto, crypto_info)
-            if pos and float(pos.get("position", 0)) != 0:
+            if pos and float(pos.get("position", 0)) < 0.0001:
                 try:
                     tif = cfg.get("alert", {}).get("default_tif", "GTC")
+                    qty_to_close = float(pos.get("position", 0))
 
                     if is_crypto:
                         order_id = _manager.close_crypto_position(
                             crypto_info["symbol"],
                             crypto_info["exchange"],
                             crypto_info["currency"],
+                            quantity=qty_to_close,
                             tif=tif
                         )
                     else:
-                        order_id = _manager.close_position(ticker, tif=tif)
+                        order_id = _manager.close_position(ticker, quantity=qty_to_close, tif=tif)
 
                     entry_price = None
-                    exit_price = None
                     qty_closed = 0.0
                     try:
                         position = pos.get("position") or 0
@@ -202,14 +205,8 @@ def webhook():  # type: ignore[misc]
                             entry_price = float(avg_cost)
                     except (ValueError, TypeError):
                         pass
-                    try:
-                        market_price = pos.get("marketPrice")
-                        if market_price is not None:
-                            exit_price = float(market_price)
-                    except (ValueError, TypeError):
-                        pass
                     logger.info("Submitted close (sell) order %s for %s tif=%s", order_id, ticker, tif)
-                    _journal.record_close(ticker, qty_closed, order_id, entry_price=entry_price, exit_price=exit_price)
+                    _journal.record_close(ticker, qty_closed, order_id, entry_price=entry_price, exit_price=None)
                     return {"status": "ok", "action": "closed_position", "order_id": order_id}, 200
                 except Exception as exc:
                     logger.error("Failed to close position for %s: %s", ticker, str(exc))
@@ -221,16 +218,22 @@ def webhook():  # type: ignore[misc]
 
         # BUY handling
         if action == "BUY":
-#            pos = _get_position_for(ticker, is_crypto, crypto_info)
-#            if pos and float(pos.get("position", 0)) != 0:
-#                logger.info("BUY alert for %s ignored: position already open", ticker)
-#                return {"status": "ignored", "reason": "position_exists"}, 200
+            pos = _get_position_for(ticker, is_crypto, crypto_info)
+            if pos:
+                remaining_qty = float(pos.get("position", 0))
+                if remaining_qty > 1:
+                    if is_crypto:
+                        logger.info("BUY alert for %s ignored: remaining quantity %.8f > 1", ticker, remaining_qty)
+                        return {"status": "ignored", "reason": "remaining_quantity_too_large"}, 200
+                    else:
+                        logger.info("BUY alert for %s ignored: position already open", ticker)
+                        return {"status": "ignored", "reason": "position_exists"}, 200
 
-            # If there are pending orders for this ticker, don't duplicate
+            # If there are pending orders for this ticker, cancel them and place fresh order
             pending = _get_open_orders_for(ticker, is_crypto, crypto_info)
             if pending:
-                logger.info("BUY alert for %s ignored: pending orders present", ticker)
-                return {"status": "ignored", "reason": "pending_orders"}, 200
+                logger.info("BUY alert for %s: cancelling stale pending orders", ticker)
+                _cancel_orders_for(ticker, logger, is_crypto, crypto_info, open_orders=pending)
 
             # Get risk params
             tif = cfg.get("alert", {}).get("default_tif", "GTC")

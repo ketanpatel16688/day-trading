@@ -288,8 +288,8 @@ class IBKRManager:
 
     def get_settled_cash(self) -> Optional[float]:
         try:
-            summary = self.get_account_summary(["SettledCash"])
-            return float(summary.get("SettledCash", 0))
+            summary = self.get_account_summary(["TotalCashBalance"])
+            return float(summary.get("TotalCashBalance", 0))
         except Exception as e:
             self.logger.warning("Failed to fetch settled cash: %s", e)
             return None
@@ -618,8 +618,29 @@ class IBKRManager:
         action_upper = action.upper()
         if action_upper not in ("BUY", "SELL"):
             raise ValueError(f"Invalid action: {action}. Must be BUY or SELL")
-        if quantity <= 0.009:
-            raise ValueError(f"Invalid quantity: {quantity}. Must be > 0.009")
+
+        MIN_CRYPTO_QTY = 0.009
+
+        if action_upper == "SELL":
+            pos = self.get_ticker_position(symbol)
+            if pos is None:
+                raise ValueError(f"No open position found for {symbol} to sell")
+            fetched_qty = float(pos.get("position", 0))
+            if fetched_qty <= 0.00001:
+                return -1
+
+            if quantity < 0.0001:
+                sell_qty = math.floor(fetched_qty * 10000) /  10000
+            else:
+                sell_qty = math.floor(quantity * 10000) / 10000
+
+            if sell_qty < MIN_CRYPTO_QTY:
+                self.logger.error("Invalid sell quantity: %s. Must be > %s", sell_qty, MIN_CRYPTO_QTY)
+                return 0
+        else:
+            if quantity < MIN_CRYPTO_QTY:
+                self.logger.error("Invalid buy quantity: %s. Must be > %s", quantity, MIN_CRYPTO_QTY)
+                return 0
 
         order_id = self._allot_order_id()
         contract = self._build_crypto_contract(symbol, exchange, currency)
@@ -633,18 +654,7 @@ class IBKRManager:
         self.logger.debug("Placing crypto order with action %s and quantity %s", action_upper, quantity)
 
         if action_upper == "SELL":
-            pos = self.get_ticker_position(symbol)
-            if pos is None:
-                raise ValueError(f"No open position found for {symbol} to sell")
-            fetched_qty = float(pos.get("position", 0))
-            if fetched_qty <= 0.001:
-                raise ValueError(
-                    f"No positive position for {symbol}. Cannot place sell order (position={fetched_qty})"
-                )
-            if quantity < 0.01:
-                order.totalQuantity = math.floor(fetched_qty * 100) / 100
-            else:
-                order.totalQuantity = math.floor(quantity * 100) / 100
+            order.totalQuantity = sell_qty
         else:
             order.cashQty = 500
 
@@ -734,21 +744,25 @@ class IBKRManager:
         if not self.ib.isConnected():
             raise RuntimeError("IBKR client is not connected")
 
-        positions = self.get_positions()
-        match = next((p for p in positions if p.get("symbol") == symbol), None)
+        if quantity is None:
+            positions = self.get_positions()
+            match = next((p for p in positions if p.get("symbol") == symbol), None)
 
-        if match is None:
-            raise ValueError(f"No open position found for symbol {symbol}")
+            if match is None:
+                raise ValueError(f"No open position found for symbol {symbol}")
 
-        open_qty = float(match.get("position", 0))
-        if open_qty == 0:
-            raise ValueError(f"Position for {symbol} is zero")
+            open_qty = float(match.get("position", 0))
+            if open_qty == 0:
+                raise ValueError(f"Position for {symbol} is zero")
 
-        qty_to_close = abs(open_qty) if quantity is None else float(quantity)
-        action = "SELL" if open_qty > 0 else "BUY"
+            qty_to_close = abs(open_qty)
+            action = "SELL" if open_qty > 0 else "BUY"
+        else:
+            qty_to_close = float(quantity)
+            action = "SELL" if qty_to_close > 0 else "BUY"
 
-        order_id = self.place_order(symbol=symbol, action=action, quantity=qty_to_close, order_type="MKT", tif=tif)
-        self.logger.info("Submitted close order %s for %s qty=%.2f tif=%s", order_id, symbol, qty_to_close, tif)
+        order_id = self.place_order(symbol=symbol, action=action, quantity=abs(qty_to_close), order_type="MKT", tif=tif)
+        self.logger.info("Submitted close order %s for %s qty=%.2f tif=%s", order_id, symbol, abs(qty_to_close), tif)
         return order_id
 
     def close_crypto_position(
@@ -763,22 +777,24 @@ class IBKRManager:
             raise RuntimeError("IBKR client is not connected")
 
         tif = "IOC"
-        positions = self.get_positions()
-        match = next((p for p in positions if p.get("symbol") == symbol), None)
 
-        if match is None:
-            raise ValueError(f"No open position found for crypto symbol {symbol}")
+        if quantity is None:
+            positions = self.get_positions()
+            match = next((p for p in positions if p.get("symbol") == symbol), None)
 
-        open_qty = float(match.get("position", 0))
-        if open_qty == 0:
-            raise ValueError(f"Position for {symbol} is zero")
+            if match is None:
+                raise ValueError(f"No open position found for crypto symbol {symbol}")
 
-        qty_to_close = abs(open_qty) if quantity is None else float(quantity)
+            open_qty = float(match.get("position", 0))
+            if open_qty == 0:
+                raise ValueError(f"Position for {symbol} is zero")
 
-        # Action is opposite of the current position sign
-        action = "SELL" if open_qty > 0 else "BUY"
+            qty_to_close = abs(open_qty)
+            action = "SELL" if open_qty > 0 else "BUY"
+        else:
+            qty_to_close = float(quantity)
+            action = "SELL" if qty_to_close > 0 else "BUY"
 
-        # Place a market order to close
-        order_id = self.place_crypto_order(symbol=symbol, exchange=exchange, currency=currency, action=action, quantity=qty_to_close, order_type="MKT", tif=tif)
-        self.logger.info("Submitted crypto close order %s for %s qty=%.8f tif=%s", order_id, symbol, qty_to_close, tif)
+        order_id = self.place_crypto_order(symbol=symbol, exchange=exchange, currency=currency, action=action, quantity=abs(qty_to_close), order_type="MKT", tif=tif)
+        self.logger.info("Submitted crypto close order %s for %s qty=%.8f tif=%s", order_id, symbol, abs(qty_to_close), tif)
         return order_id

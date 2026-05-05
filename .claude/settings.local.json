@@ -6,7 +6,19 @@
       "Bash(python -m unittest test_function.TestIBKRManagerParameterValidation.test_place_crypto_order_sell_no_position -v)",
       "Bash(python test_threading_fix.py)",
       "Bash(timeout 20 python test_event_loop_fix.py)",
-      "Bash(python test_event_loop_fix.py)"
+      "Bash(python test_event_loop_fix.py)",
+      "Bash(python main.py --help)",
+      "Bash(timeout 5 python main.py --debug-close AAPL)",
+      "Bash(timeout 5 python main.py --debug-positions)",
+      "Bash(timeout 5 python main.py --debug-orders)",
+      "Bash(timeout 5 python main.py --debug-watchlist)",
+      "Bash(timeout 5 python main.py --bracket AAPL --bracket-sl 150 --bracket-tp 160)",
+      "Bash(timeout 5 python main.py --option \"AAPL 20240821 C 170\")",
+      "Bash(timeout 5 python main.py --crypto SOL)",
+      "Bash(timeout 5 python main.py --cancel-order 12345)",
+      "Bash(timeout 5 python main.py --close-position TSLA)",
+      "Bash(timeout 5 python main.py --bracket-side sell --bracket-qty 2)",
+      "Bash(python -m py_compile trade_alerts.py ibkr_trading_bot/ibkr_manager.py)"
     ]
   }
 }
