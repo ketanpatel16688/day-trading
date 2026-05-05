@@ -32,9 +32,9 @@ class TestIBKRManagerParameterValidation(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures"""
         self.manager = IBKRManager()
-        self.manager.client = MagicMock()
-        self.manager.client.isConnected.return_value = True
-        self.manager.client.next_order_id = 1
+        self.manager.ib = MagicMock()
+        self.manager.ib.isConnected.return_value = True
+        self.manager._next_order_id = 1
 
     def test_place_order_valid_parameters(self):
         """Test place_order with valid parameters"""
@@ -46,7 +46,7 @@ class TestIBKRManagerParameterValidation(unittest.TestCase):
                 order_type="MKT"
             )
             self.assertGreater(order_id, 0)
-            self.assertTrue(self.manager.client.placeOrder.called)
+            self.assertTrue(self.manager.ib.placeOrder.called)
             print("[PASS] place_order accepts valid parameters")
         except Exception as e:
             self.fail(f"place_order should accept valid parameters: {e}")
@@ -234,8 +234,8 @@ class TestConnectionValidation(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures"""
         self.manager = IBKRManager()
-        self.manager.client = MagicMock()
-        self.manager.client.isConnected.return_value = False
+        self.manager.ib = MagicMock()
+        self.manager.ib.isConnected.return_value = False
 
     def test_place_order_requires_connection(self):
         """Test place_order requires IBKR connection"""
@@ -335,9 +335,9 @@ class TestTypeConsistency(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures"""
         self.manager = IBKRManager()
-        self.manager.client = MagicMock()
-        self.manager.client.isConnected.return_value = True
-        self.manager.client.next_order_id = 1
+        self.manager.ib = MagicMock()
+        self.manager.ib.isConnected.return_value = True
+        self.manager._next_order_id = 1
 
     def test_place_order_returns_int(self):
         """Test place_order returns integer order ID"""
@@ -417,9 +417,9 @@ class TestEdgeCases(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures"""
         self.manager = IBKRManager()
-        self.manager.client = MagicMock()
-        self.manager.client.isConnected.return_value = True
-        self.manager.client.next_order_id = 1
+        self.manager.ib = MagicMock()
+        self.manager.ib.isConnected.return_value = True
+        self.manager._next_order_id = 1
 
     def test_place_order_very_small_quantity(self):
         """Test place_order with very small quantity"""
@@ -473,15 +473,15 @@ class TestCryptoSpecifics(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures"""
         self.manager = IBKRManager()
-        self.manager.client = MagicMock()
-        self.manager.client.isConnected.return_value = True
-        self.manager.client.next_order_id = 1
+        self.manager.ib = MagicMock()
+        self.manager.ib.isConnected.return_value = True
+        self.manager._next_order_id = 1
 
     def test_place_crypto_order_buy_uses_cashqty(self):
         """Test place_crypto_order BUY uses cashQty"""
         self.manager.place_crypto_order("SOL", "PAXOS", "USD", "BUY", 1.0)
         # Check that placeOrder was called
-        self.assertTrue(self.manager.client.placeOrder.called)
+        self.assertTrue(self.manager.ib.placeOrder.called)
         print("[OK] place_crypto_order BUY operation completes")
 
     def test_place_crypto_bracket_order_structure(self):

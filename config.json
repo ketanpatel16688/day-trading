@@ -43,7 +43,7 @@
     "initial_capital": 100000
   },
   "logging": {
-    "log_level": "DEBUG",
+    "log_level": "INFO",
     "error_log": "logs/error.log",
     "trade_log": "logs/trade.log",
     "execution_log": "logs/execution.log",
