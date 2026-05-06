@@ -12,6 +12,7 @@ from typing import Optional
 from config import load_config, configure_logging
 from ibkr_trading_bot.ibkr_manager import IBKRManager
 from ibkr_trading_bot.trading_journal import TradingJournal
+from main import print_yellow
 from risk_management import RiskManager
 
 app = Flask(__name__)
@@ -140,7 +141,7 @@ def webhook():  # type: ignore[misc]
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     log_entry = {"time": timestamp, "action": action_raw, "ticker": ticker, "price": price}
-    print("Alert received:", log_entry)
+    print_yellow(">>>>>>>>>>>>>>>> Alert received:", log_entry)
     _log_alert(log_entry)
 
     # Normalise actions
@@ -176,7 +177,7 @@ def webhook():  # type: ignore[misc]
 
             # If a position exists, close it (market)
             pos = _get_position_for(ticker, is_crypto, crypto_info)
-            if pos and float(pos.get("position", 0)) < 0.0001:
+            if pos and float(pos.get("position", 0)) > 0.0001:
                 try:
                     tif = cfg.get("alert", {}).get("default_tif", "GTC")
                     qty_to_close = float(pos.get("position", 0))
@@ -256,7 +257,7 @@ def webhook():  # type: ignore[misc]
                         quantity=qty,
                         stop_price=sl_price,
                         take_profit_price=tp_price,
-                        tif="IOC"
+                        tif="MKT"
                     )
 
                 else:

@@ -393,7 +393,7 @@ def main() -> None:
                             stop_price=float(sl),
                             take_profit_price=float(tp),
                             limit_price=float(limit) if limit is not None else None,
-                            tif="IOC",
+                            tif="IOC"
                         )
                         trade_logger.info("Placed crypto bracket order for %s: %s", ticker, ids)
                         print_yellow(f"Placed crypto bracket order for {ticker}: parent={ids['parent']} tp={ids['tp']} sl={ids['sl']}")

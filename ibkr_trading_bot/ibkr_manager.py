@@ -610,7 +610,7 @@ class IBKRManager:
         quantity: float,
         order_type: str = "MKT",
         price: Optional[float] = None,
-        tif: str = "IOC",
+        tif: str = "MKT",
     ) -> int:
         if not self.ib.isConnected():
             raise RuntimeError("IBKR client is not connected")
@@ -683,7 +683,7 @@ class IBKRManager:
         stop_price: float,
         take_profit_price: float,
         limit_price: Optional[float] = None,
-        tif: str = "IOC",
+        tif: str = "MKT",
     ) -> Dict[str, int]:
         if not self.ib.isConnected():
             raise RuntimeError("IBKR client is not connected")
@@ -698,7 +698,7 @@ class IBKRManager:
         parent.orderType = "LMT" if limit_price is not None else "MKT"
         parent.action = action.upper()
         parent.cashQty = 500
-        parent.tif = "IOC"
+        parent.tif = tif
         if limit_price is not None and parent.orderType == "LMT":
             parent.lmtPrice = round(limit_price, 2)
         if stop_price is not None:
@@ -776,15 +776,16 @@ class IBKRManager:
         if not self.ib.isConnected():
             raise RuntimeError("IBKR client is not connected")
 
-        tif = "IOC"
+        tif = "MKT"
 
         if quantity is None:
             positions = self.get_positions()
             match = next((p for p in positions if p.get("symbol") == symbol), None)
 
             if match is None:
-                raise ValueError(f"No open position found for crypto symbol {symbol}")
-
+                self.logger.info("No open position found for symbol %s; skipping", symbol)
+                return 0
+                
             open_qty = float(match.get("position", 0))
             if open_qty == 0:
                 raise ValueError(f"Position for {symbol} is zero")
